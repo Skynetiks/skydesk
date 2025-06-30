@@ -1,11 +1,13 @@
 "use client";
 
 import { TicketList } from "@/components/TicketList";
+import { TicketListSkeleton } from "@/components/TicketListSkeleton";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { SideNav } from "@/components/SideNav";
+import { TicketIcon } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { trpc } from "@/app/_trpc/client";
-import { TicketIcon } from "lucide-react";
 
 export default function TicketsPage() {
   const [activeTab, setActiveTab] = useState<
@@ -21,7 +23,15 @@ export default function TicketsPage() {
     });
 
   if (sessionStatus === "loading" || isUserLoading) {
-    return <div>Loading...</div>;
+    return (
+      <PageSkeleton
+        headerIcon={<TicketIcon className="w-6 h-6 text-white" />}
+        headerTitle="Support Tickets"
+        headerDescription="Manage and respond to customer support requests"
+      >
+        <TicketListSkeleton />
+      </PageSkeleton>
+    );
   }
 
   if (sessionStatus === "unauthenticated") {

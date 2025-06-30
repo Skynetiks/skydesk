@@ -4,6 +4,8 @@ import { ConfigurationPanel } from "@/components/ConfigurationPanel";
 import { useSession } from "next-auth/react";
 import { trpc } from "@/app/_trpc/client";
 import { SideNav } from "@/components/SideNav";
+import { PageSkeleton } from "@/components/PageSkeleton";
+import { SettingsIcon } from "lucide-react";
 import { useState } from "react";
 
 export default function AdminImapConfigPage() {
@@ -20,7 +22,13 @@ export default function AdminImapConfigPage() {
   >("config");
 
   if (status === "loading" || isUserLoading) {
-    return <div>Loading...</div>;
+    return (
+      <PageSkeleton
+        headerIcon={<SettingsIcon className="w-6 h-6 text-white" />}
+        headerTitle="Configuration"
+        headerDescription="System settings & email config"
+      />
+    );
   }
 
   if (status === "unauthenticated") {

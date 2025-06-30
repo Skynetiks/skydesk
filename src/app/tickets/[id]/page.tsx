@@ -2,12 +2,13 @@
 
 import { TicketDetail } from "@/components/TicketDetail";
 import { SideNav } from "@/components/SideNav";
-import { useState } from "react";
-import { useSession } from "next-auth/react";
-import { trpc } from "@/app/_trpc/client";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { TicketIcon, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
+import { useSession } from "next-auth/react";
+import { trpc } from "@/app/_trpc/client";
 
 export default function TicketPage() {
   const [activeTab, setActiveTab] = useState<
@@ -29,7 +30,13 @@ export default function TicketPage() {
   }
 
   if (sessionStatus === "loading" || isUserLoading) {
-    return <div>Loading...</div>;
+    return (
+      <PageSkeleton
+        headerIcon={<TicketIcon className="w-6 h-6 text-white" />}
+        headerTitle="Ticket Details"
+        headerDescription="View and respond to this support ticket"
+      />
+    );
   }
 
   if (sessionStatus === "unauthenticated") {

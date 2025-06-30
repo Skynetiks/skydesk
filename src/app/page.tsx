@@ -14,6 +14,7 @@ import {
   BarChart3Icon,
 } from "lucide-react";
 import { SideNav } from "@/components/SideNav";
+import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { useState } from "react";
 
 export default function DashboardPage() {
@@ -30,11 +31,7 @@ export default function DashboardPage() {
     });
 
   if (sessionStatus === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-        <div className="text-lg text-gray-600">Loading session...</div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (sessionStatus === "unauthenticated") {
@@ -51,11 +48,7 @@ export default function DashboardPage() {
   }
 
   if (isUserLoading || !currentUser) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-        <div className="text-lg text-gray-600">Loading user info...</div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const isAdmin = currentUser?.role === "ADMIN";

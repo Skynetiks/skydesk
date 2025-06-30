@@ -27,6 +27,7 @@ import {
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
+import { TicketListSkeleton } from "@/components/TicketListSkeleton";
 
 export function TicketList() {
   const { data: session, status: sessionStatus } = useSession();
@@ -38,14 +39,7 @@ export function TicketList() {
 
   // Show loading state while session is loading
   if (sessionStatus === "loading") {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="flex items-center gap-3 text-gray-500">
-          <RefreshCwIcon className="w-6 h-6 animate-spin" />
-          <span className="text-lg">Loading session...</span>
-        </div>
-      </div>
-    );
+    return <TicketListSkeleton />;
   }
 
   // Don't show anything if not authenticated
@@ -117,14 +111,7 @@ export function TicketList() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="flex items-center gap-3 text-gray-500">
-          <RefreshCwIcon className="w-6 h-6 animate-spin" />
-          <span className="text-lg">Loading tickets...</span>
-        </div>
-      </div>
-    );
+    return <TicketListSkeleton />;
   }
 
   return (
@@ -216,8 +203,7 @@ export function TicketList() {
           <Link
             key={ticket.id}
             href={`/tickets/${ticket.id}`}
-            passHref
-            legacyBehavior
+            className="block"
           >
             <Card className="bg-white/70 backdrop-blur-sm border-white/20 hover:shadow-lg hover:bg-white/80 transition-all duration-300 cursor-pointer group">
               <CardContent className="p-0">

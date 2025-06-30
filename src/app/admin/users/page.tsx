@@ -4,8 +4,9 @@ import { UserManagement } from "@/components/UserManagement";
 import { useSession } from "next-auth/react";
 import { trpc } from "@/app/_trpc/client";
 import { SideNav } from "@/components/SideNav";
-import { useState } from "react";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { UsersIcon } from "lucide-react";
+import { useState } from "react";
 
 export default function AdminUsersPage() {
   const { data: session, status } = useSession();
@@ -21,7 +22,13 @@ export default function AdminUsersPage() {
   >("users");
 
   if (status === "loading" || isUserLoading) {
-    return <div>Loading...</div>;
+    return (
+      <PageSkeleton
+        headerIcon={<UsersIcon className="w-6 h-6 text-white" />}
+        headerTitle="User Management"
+        headerDescription="Manage team members and their permissions"
+      />
+    );
   }
 
   if (status === "unauthenticated") {
