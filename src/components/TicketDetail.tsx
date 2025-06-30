@@ -6,6 +6,7 @@ import { trpc } from "@/app/_trpc/client";
 import { Button } from "@/components/ui/button";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { EmailThread } from "@/components/EmailThread";
+import { TicketDetailSkeleton } from "@/components/TicketDetailSkeleton";
 import { formatDistanceToNow } from "date-fns";
 import { useSession } from "next-auth/react";
 import { Send, Paperclip, AlertCircle } from "lucide-react";
@@ -74,11 +75,7 @@ export function TicketDetail() {
 
   // Show loading state while session is loading
   if (sessionStatus === "loading") {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg">Loading session...</div>
-      </div>
-    );
+    return <TicketDetailSkeleton />;
   }
 
   // Don't show anything if not authenticated
@@ -91,11 +88,7 @@ export function TicketDetail() {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg">Loading ticket...</div>
-      </div>
-    );
+    return <TicketDetailSkeleton />;
   }
 
   if (!ticket) {
