@@ -1,0 +1,118 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+    id        String   @id @default(cuid())
+    email     String   @unique
+    name      String
+    password  String
+    role      UserRole @default(USER)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    assignedTickets Ticket[]  @relation("AssignedTickets")
+    createdTickets  Ticket[]  @relation("CreatedTickets")
+    messages        Message[]
+
+    @@map("users")
+}
+
+model Ticket {
+    id          String       @id @default(cuid())
+    subject     String
+    status      TicketStatus @default(OPEN)
+    priority    Priority     @default(MEDIUM)
+    emailId     String       @unique // Unique identifier for the email thread
+    fromEmail   String
+    fromName    String?
+    createdAt   DateTime     @default(now())
+    updatedAt   DateTime     @updatedAt
+    lastReplied DateTime?
+
+    // Relations
+    assignedToId String?
+    assignedTo   User?        @relation("AssignedTickets", fields: [assignedToId], references: [id])
+    createdById  String
+    createdBy    User         @relation("CreatedTickets", fields: [createdById], references: [id])
+    messages     Message[]
+    attachments  Attachment[]
+
+    @@map("tickets")
+}
+
+model Message {
+    id         String   @id @default(cuid())
+    content    String
+    isFromUser Boolean  @default(false) // true if from user, false if from agent
+    createdAt  DateTime @default(now())
+    messageId  String? // Email Message-ID for threading
+    inReplyTo  String? // In-Reply-To header for reply detection
+    references String? // References header for threading
+
+    // Relations
+    ticketId    String
+    ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+    userId      String?
+    user        User?        @relation(fields: [userId], references: [id])
+    attachments Attachment[]
+
+    @@map("messages")
+}
+
+model Attachment {
+    id           String   @id @default(cuid())
+    filename     String
+    originalName String
+    mimeType     String
+    size         Int
+    url          String // URL to the stored file
+    createdAt    DateTime @default(now())
+
+    // Relations
+    ticketId  String?
+    ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+    messageId String?
+    message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+    @@map("attachments")
+}
+
+model Configuration {
+    id          String   @id @default(cuid())
+    key         String   @unique
+    value       String
+    description String?
+    updatedAt   DateTime @updatedAt
+    updatedBy   String // User ID who last updated this config
+
+    @@map("configurations")
+}
+
+enum UserRole {
+    ADMIN
+    USER
+}
+
+enum TicketStatus {
+    OPEN
+    IN_PROGRESS
+    RESOLVED
+    CLOSED
+}
+
+enum Priority {
+    LOW
+    MEDIUM
+    HIGH
+    URGENT
+}
