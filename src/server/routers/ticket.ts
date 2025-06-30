@@ -3,7 +3,7 @@ import {
   createTRPCRouter,
   protectedProcedure,
   publicProcedure,
-} from "@/server/api/trpc";
+} from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { sendEmail } from "@/lib/email";
 import bcrypt from "bcryptjs";

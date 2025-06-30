@@ -6,7 +6,7 @@ import { getServerSession } from "next-auth/next";
 import { ZodError } from "zod";
 
 import { authOptions } from "@/lib/auth";
-import { db } from "@/server/db";
+import { db } from "./db";
 
 /**
  * 1. CONTEXT
@@ -62,45 +62,39 @@ export const createTRPCFetchContext = async (
 ) => {
   const { req } = opts;
 
-  // Convert the fetch Request to a format that getServerSession can understand
-  const headers = Object.fromEntries(req.headers.entries());
-
-  // Extract cookies from the request headers
-  const cookies = headers.cookie || "";
-
-  // Create a mock Next.js request object
-  const mockReq = {
-    headers: {
-      ...headers,
-      cookie: cookies,
-    },
-    cookies: Object.fromEntries(
-      cookies
-        .split(";")
-        .map((cookie) => {
-          const [name, value] = cookie.trim().split("=");
-          return [name, decodeURIComponent(value || "")];
-        })
-        .filter(([name]) => name)
-    ),
-  } as Parameters<typeof getServerSession>[0];
-
-  const mockRes = {
-    setHeader: () => {},
-    getHeader: () => {},
-  } as unknown as Parameters<typeof getServerSession>[1];
-
   try {
-    // Get the session using the mock request/response objects
-    const session = await (
-      getServerSession as (...args: unknown[]) => Promise<unknown>
-    )(mockReq, mockRes, authOptions);
+    // For App Router with NextAuth v4, we need to manually extract cookies
+    const cookieHeader = req.headers.get("cookie") || "";
+
+    // Create a mock request object that NextAuth v4 expects
+    const mockReq = {
+      headers: {
+        cookie: cookieHeader,
+        ...Object.fromEntries(req.headers.entries()),
+      },
+      cookies: Object.fromEntries(
+        cookieHeader
+          .split(";")
+          .map((cookie) => {
+            const [name, ...valueParts] = cookie.trim().split("=");
+            const value = valueParts.join("=");
+            return [name, decodeURIComponent(value || "")];
+          })
+          .filter(([name]) => name)
+      ),
+    } as any;
+
+    const mockRes = {
+      setHeader: () => {},
+      getHeader: () => {},
+    } as any;
+
+    const session = await getServerSession(mockReq, mockRes, authOptions);
 
     return createInnerTRPCContext({
-      session: session as Session | null,
+      session,
     });
   } catch (error) {
-    console.error("Error getting session in tRPC context:", error);
     return createInnerTRPCContext({
       session: null,
     });
@@ -116,14 +110,6 @@ export const createTRPCFetchContext = async (
  */
 
 const t = initTRPC.context<typeof createTRPCFetchContext>().create({
-  transformer: {
-    serialize: (object) => {
-      return JSON.parse(JSON.stringify(object));
-    },
-    deserialize: (object) => {
-      return object;
-    },
-  },
   errorFormatter({ shape, error }) {
     return {
       ...shape,

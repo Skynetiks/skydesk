@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  createTRPCRouter,
-  protectedProcedure,
-} from "@/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
 
@@ -40,7 +37,6 @@ export const userRouter = createTRPCRouter({
 
   // Get current user
   getCurrent: protectedProcedure.query(async ({ ctx }) => {
-
     const user = await ctx.db.user.findUnique({
       where: { id: ctx.session.user.id },
       select: {

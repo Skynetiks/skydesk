@@ -1,6 +1,6 @@
 import { sendEmail } from "@/lib/email";
-import { appRouter } from "@/server/api/root";
-import { createTRPCFetchContext } from "@/server/api/trpc";
+import { appRouter } from "@/server/root";
+import { createTRPCFetchContext } from "@/server/trpc";
 import { db } from "@/server/db";
 import { NextRequest, NextResponse } from "next/server";
 
