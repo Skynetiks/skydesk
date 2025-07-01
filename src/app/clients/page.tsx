@@ -1,18 +1,18 @@
 "use client";
 
-import { TicketList } from "@/components/TicketList";
-import { TicketListSkeleton } from "@/components/TicketListSkeleton";
-import { PageSkeleton } from "@/components/PageSkeleton";
-import { SideNav } from "@/components/SideNav";
-import { TicketIcon } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
+import { SideNav } from "@/components/SideNav";
+import { ClientList } from "@/components/ClientList";
+import { ClientListSkeleton } from "@/components/ClientListSkeleton";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { trpc } from "@/app/_trpc/client";
+import { Building2Icon } from "lucide-react";
 
-export default function TicketsPage() {
+export default function ClientsPage() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "tickets" | "clients" | "config" | "users"
-  >("tickets");
+  >("clients");
   const { data: session, status: sessionStatus } = useSession();
   const { data: stats } = trpc.ticket.getStats.useQuery(undefined, {
     enabled: !!session,
@@ -24,8 +24,10 @@ export default function TicketsPage() {
 
   if (sessionStatus === "loading" || isUserLoading) {
     return (
-      <PageSkeleton headerIcon={<TicketIcon className="w-6 h-6 text-white" />}>
-        <TicketListSkeleton />
+      <PageSkeleton
+        headerIcon={<Building2Icon className="w-6 h-6 text-white" />}
+      >
+        <ClientListSkeleton />
       </PageSkeleton>
     );
   }
@@ -53,20 +55,18 @@ export default function TicketsPage() {
         <div className="p-6 lg:p-8 pt-16 lg:pt-8">
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
-              <TicketIcon className="w-6 h-6 text-white" />
+            <div className="w-12 h-12 bg-gradient-to-br from-emerald-600 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
+              <Building2Icon className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
-                Support Tickets
+                Clients
               </h1>
-              <p className="text-gray-600 mt-1">
-                Manage and respond to customer support requests
-              </p>
+              <p className="text-gray-600 mt-1">Manage your client database</p>
             </div>
           </div>
 
-          <TicketList />
+          <ClientList isAdmin={isAdmin} />
         </div>
       </div>
     </div>

@@ -252,11 +252,17 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Update ticket's last replied timestamp
+      // Update ticket's last replied timestamp and lastMessageId
       await db.ticket.update({
         where: { id: existingTicket.id },
         data: {
           lastReplied: new Date(),
+          lastMessageId: messageId || undefined,
+          messageIds: messageId
+            ? {
+                push: messageId,
+              }
+            : undefined,
         },
       });
 
@@ -332,6 +338,17 @@ You can view the full ticket at: ${
             process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") ||
             "company.com"
           }`;
+
+          // Update ticket's messageIds array to include the confirmation message
+          await db.ticket.update({
+            where: { id: ticket.id },
+            data: {
+              lastMessageId: confirmationMessageId,
+              messageIds: {
+                push: confirmationMessageId,
+              },
+            },
+          });
 
           await sendEmail({
             to: fromEmail,
@@ -412,9 +429,10 @@ This email thread is linked to your support ticket.`,
             headers: {
               "Message-ID": confirmationMessageId,
               ...(messageId && { "In-Reply-To": messageId }),
-              References: messageId
-                ? `${messageId} ${references || ""}`.trim()
-                : references,
+              References:
+                messageId && references
+                  ? `${references} ${messageId}`.trim()
+                  : messageId || references,
             },
           });
 

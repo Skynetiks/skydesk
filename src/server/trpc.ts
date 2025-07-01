@@ -4,6 +4,7 @@ import { type FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { type Session } from "next-auth";
 import { getServerSession } from "next-auth/next";
 import { ZodError } from "zod";
+import { type NextApiRequest, type NextApiResponse } from "next";
 
 import { authOptions } from "@/lib/auth";
 import { db } from "./db";
@@ -18,6 +19,19 @@ import { db } from "./db";
 
 interface CreateContextOptions {
   session: Session | null;
+}
+
+// Type for mock request object compatible with NextAuth
+interface MockNextAuthRequest {
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+}
+
+// Type for mock response object compatible with NextAuth
+interface MockNextAuthResponse {
+  setHeader: (name: string, value: string) => void;
+  getHeader: (name: string) => string | undefined;
+  setCookie?: (name: string, value: string, options?: unknown) => void;
 }
 
 /**
@@ -66,8 +80,8 @@ export const createTRPCFetchContext = async (
     // For App Router with NextAuth v4, we need to manually extract cookies
     const cookieHeader = req.headers.get("cookie") || "";
 
-    // Create a mock request object that NextAuth v4 expects
-    const mockReq = {
+    // Create mock request and response objects that NextAuth expects
+    const mockReq: MockNextAuthRequest = {
       headers: {
         cookie: cookieHeader,
         ...Object.fromEntries(req.headers.entries()),
@@ -82,19 +96,25 @@ export const createTRPCFetchContext = async (
           })
           .filter(([name]) => name)
       ),
-    } as any;
+    };
 
-    const mockRes = {
+    const mockRes: MockNextAuthResponse = {
       setHeader: () => {},
-      getHeader: () => {},
-    } as any;
+      getHeader: () => undefined,
+      setCookie: () => {},
+    };
 
-    const session = await getServerSession(mockReq, mockRes, authOptions);
+    // Cast to the types NextAuth expects for traditional API route usage
+    const session = await getServerSession(
+      mockReq as NextApiRequest,
+      mockRes as NextApiResponse,
+      authOptions
+    );
 
     return createInnerTRPCContext({
       session,
     });
-  } catch (error) {
+  } catch {
     return createInnerTRPCContext({
       session: null,
     });
@@ -148,7 +168,7 @@ export const publicProcedure = t.procedure;
 /**
  * Protected (authenticated) procedure
  *
- * If you want a query or mutation to ONLY be accessible to logged in users, use this. It verifies
+ * If you want a query or mutation to ONLY be accessible to logged in users, use this. it verifies
  * the session is valid and guarantees `ctx.session.user` is not null.
  *
  * @see https://trpc.io/docs/procedures
@@ -157,6 +177,34 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.session || !ctx.session.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
+  return next({
+    ctx: {
+      // infers the `session` as non-nullable
+      session: { ...ctx.session, user: ctx.session.user },
+    },
+  });
+});
+
+/**
+ * Admin (authenticated + admin role) procedure
+ *
+ * This procedure ensures that the user is not only authenticated but also has admin privileges.
+ * It verifies the session is valid and guarantees `ctx.session.user` is not null and has admin role.
+ *
+ * @see https://trpc.io/docs/procedures
+ */
+export const adminProcedure = t.procedure.use(({ ctx, next }) => {
+  if (!ctx.session || !ctx.session.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  if (ctx.session.user.role !== "ADMIN") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required",
+    });
+  }
+
   return next({
     ctx: {
       // infers the `session` as non-nullable

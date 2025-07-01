@@ -206,7 +206,15 @@ async function addMessageToExistingTicket(
   // Update ticket's last replied timestamp
   await db.ticket.update({
     where: { id: ticket.id },
-    data: { lastReplied: new Date() },
+    data: {
+      lastReplied: new Date(),
+      lastMessageId: messageId || undefined,
+      messageIds: messageId
+        ? {
+            push: messageId,
+          }
+        : undefined,
+    },
   });
 
   console.log(`Added message to existing ticket ${ticket.id} from ${from}`);
@@ -287,6 +295,8 @@ async function processEmail(emailData: {
       fromName: name || undefined,
       emailId,
       createdById: systemUserId,
+      lastMessageId: messageId || undefined,
+      messageIds: messageId ? [messageId] : [],
       messages: {
         create: {
           content: text,
@@ -308,6 +318,17 @@ async function processEmail(emailData: {
       const confirmationMessageId = `ticket-confirmation-${ticket.id}@${
         process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
       }`;
+
+      // Update ticket's messageIds array to include the confirmation message
+      await db.ticket.update({
+        where: { id: ticket.id },
+        data: {
+          lastMessageId: confirmationMessageId,
+          messageIds: {
+            push: confirmationMessageId,
+          },
+        },
+      });
 
       await sendEmail({
         to: email,
@@ -336,7 +357,10 @@ This email thread is linked to your support ticket.`,
           ...(messageId
             ? {
                 "In-Reply-To": messageId,
-                References: `${messageId} ${references || ""}`.trim(),
+                References:
+                  references && messageId
+                    ? `${references} ${messageId}`.trim()
+                    : messageId,
               }
             : {}),
         },

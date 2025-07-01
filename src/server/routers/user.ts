@@ -1,19 +1,15 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
+import {
+  createTRPCRouter,
+  protectedProcedure,
+  adminProcedure,
+} from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
 
 export const userRouter = createTRPCRouter({
   // Get all users (admin only)
-  getAll: protectedProcedure.query(async ({ ctx }) => {
-    // Only admins can view all users
-    if (ctx.session.user.role !== "ADMIN") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Only admins can view all users",
-      });
-    }
-
+  getAll: adminProcedure.query(async ({ ctx }) => {
     const users = await ctx.db.user.findMany({
       select: {
         id: true,
@@ -59,7 +55,7 @@ export const userRouter = createTRPCRouter({
   }),
 
   // Create a new user (admin only)
-  create: protectedProcedure
+  create: adminProcedure
     .input(
       z.object({
         email: z.string().email(),
@@ -69,14 +65,6 @@ export const userRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Only admins can create users
-      if (ctx.session.user.role !== "ADMIN") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only admins can create users",
-        });
-      }
-
       // Check if user already exists
       const existingUser = await ctx.db.user.findUnique({
         where: { email: input.email },
@@ -156,17 +144,9 @@ export const userRouter = createTRPCRouter({
     }),
 
   // Delete user (admin only)
-  delete: protectedProcedure
+  delete: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Only admins can delete users
-      if (ctx.session.user.role !== "ADMIN") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only admins can delete users",
-        });
-      }
-
       // Prevent admin from deleting themselves
       if (ctx.session.user.id === input.id) {
         throw new TRPCError({

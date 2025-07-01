@@ -265,7 +265,14 @@ export function TicketDetail() {
         </div>
         <div className="p-6">
           <EmailThread
-            messages={ticket.messages}
+            messages={ticket.messages.map((m) => ({
+              ...m,
+              createdAt: new Date(m.createdAt),
+              attachments: m.attachments.map((a) => ({
+                ...a,
+                createdAt: new Date(a.createdAt),
+              })),
+            }))}
             ticketFromEmail={ticket.fromEmail}
             ticketFromName={ticket.fromName}
           />

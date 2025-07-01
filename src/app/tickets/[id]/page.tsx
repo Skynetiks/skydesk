@@ -12,7 +12,7 @@ import { trpc } from "@/app/_trpc/client";
 
 export default function TicketPage() {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "config" | "users"
   >("tickets");
   const { data: session, status: sessionStatus } = useSession();
   const { data: stats } = trpc.ticket.getStats.useQuery(undefined, {
@@ -33,8 +33,6 @@ export default function TicketPage() {
     return (
       <PageSkeleton
         headerIcon={<TicketIcon className="w-6 h-6 text-white" />}
-        headerTitle="Ticket Details"
-        headerDescription="View and respond to this support ticket"
       />
     );
   }

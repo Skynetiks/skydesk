@@ -18,15 +18,13 @@ export default function AdminImapConfigPage() {
       enabled: !!session,
     });
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "config" | "users"
   >("config");
 
   if (status === "loading" || isUserLoading) {
     return (
       <PageSkeleton
         headerIcon={<SettingsIcon className="w-6 h-6 text-white" />}
-        headerTitle="Configuration"
-        headerDescription="System settings & email config"
       />
     );
   }

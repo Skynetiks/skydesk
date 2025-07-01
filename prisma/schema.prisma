@@ -28,22 +28,26 @@ model User {
 }
 
 model Ticket {
-    id          String       @id @default(cuid())
-    subject     String
-    status      TicketStatus @default(OPEN)
-    priority    Priority     @default(MEDIUM)
-    emailId     String       @unique // Unique identifier for the email thread
-    fromEmail   String
-    fromName    String?
-    createdAt   DateTime     @default(now())
-    updatedAt   DateTime     @updatedAt
-    lastReplied DateTime?
+    id            String       @id @default(cuid())
+    subject       String
+    status        TicketStatus @default(OPEN)
+    priority      Priority     @default(MEDIUM)
+    emailId       String       @unique // Unique identifier for the email thread
+    fromEmail     String
+    fromName      String?
+    createdAt     DateTime     @default(now())
+    updatedAt     DateTime     @updatedAt
+    lastReplied   DateTime?
+    lastMessageId String? // Stores the latest email messageId for threading
+    messageIds    String[] // Stores all email Message-IDs in chronological order for building complete trails
 
     // Relations
     assignedToId String?
     assignedTo   User?        @relation("AssignedTickets", fields: [assignedToId], references: [id])
     createdById  String
     createdBy    User         @relation("CreatedTickets", fields: [createdById], references: [id])
+    clientId     String?
+    client       Client?      @relation(fields: [clientId], references: [id])
     messages     Message[]
     attachments  Attachment[]
 
@@ -96,6 +100,25 @@ model Configuration {
     updatedBy   String // User ID who last updated this config
 
     @@map("configurations")
+}
+
+model Client {
+    id          String   @id @default(cuid())
+    name        String
+    emails      String[] // Array of email addresses
+    phone       String[] // Array of phone numbers
+    address     String?
+    city        String?
+    state       String?
+    country     String?
+    companyName String?
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    // Relations
+    tickets Ticket[]
+
+    @@map("clients")
 }
 
 enum UserRole {

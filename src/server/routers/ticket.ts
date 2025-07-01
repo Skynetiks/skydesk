@@ -204,6 +204,8 @@ export const ticketRouter = createTRPCRouter({
           fromName: input.fromName,
           emailId: input.emailId,
           createdById: systemUser.id,
+          lastMessageId: input.messageId || undefined,
+          messageIds: input.messageId ? [input.messageId] : [],
           messages: {
             create: {
               content: input.content,
@@ -567,9 +569,9 @@ You can view the full ticket at: ${
         include: {
           assignedTo: true,
           messages: {
-            orderBy: { createdAt: "asc" }, // Get messages in chronological order
-            where: { isFromUser: false }, // Get system messages (confirmation emails)
-            take: 1, // Get the first system message (confirmation email)
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            where: { messageId: { not: null } },
           },
         },
       });
@@ -592,23 +594,30 @@ You can view the full ticket at: ${
         });
       }
 
-      // Find the confirmation email (first system message) to reply to
-      const confirmationMessage = ticket.messages[0];
+      // Get the last message to build proper threading
+      const lastMessage = ticket.messages[0];
 
       // Generate threading information
       const messageId = `<reply-${Date.now()}-${Math.random()
         .toString(36)
         .substr(2, 9)}@${process.env.NEXTAUTH_URL || "ticketsystem.com"}>`;
 
-      // Use the confirmation message's messageId as In-Reply-To, fallback to ticket emailId
-      const inReplyTo = confirmationMessage?.messageId || ticket.emailId;
+      // Use the last message's messageId as In-Reply-To, fallback to ticket emailId
+      const inReplyTo = lastMessage?.messageId || ticket.emailId;
 
-      // Build references chain: include the confirmation message's references if it exists, then add the confirmation message's messageId
-      const references = confirmationMessage?.references
-        ? `${confirmationMessage.references} ${
-            confirmationMessage.messageId || ticket.emailId
-          }`
-        : confirmationMessage?.messageId || ticket.emailId;
+      // Build proper references chain using the complete messageIds array
+      let references = ticket.emailId; // Start with the original email ID
+
+      if (ticket.messageIds && ticket.messageIds.length > 0) {
+        // Use the complete messageIds array to build the full References chain
+        references = `${ticket.emailId} ${ticket.messageIds.join(" ")}`;
+      } else if (lastMessage?.references) {
+        // Fallback: If the last message has references, use them and add the last message's messageId
+        references = `${lastMessage.references} ${lastMessage.messageId}`;
+      } else if (lastMessage?.messageId) {
+        // Fallback: If no references but has messageId, start the chain
+        references = `${ticket.emailId} ${lastMessage.messageId}`;
+      }
 
       // Create the message
       const message = await ctx.db.message.create({
@@ -628,11 +637,15 @@ You can view the full ticket at: ${
         },
       });
 
-      // Update ticket's last replied timestamp
+      // Update ticket's last replied timestamp, lastMessageId, and add to messageIds array
       await ctx.db.ticket.update({
         where: { id: input.ticketId },
         data: {
           lastReplied: new Date(),
+          lastMessageId: messageId,
+          messageIds: {
+            push: messageId,
+          },
         },
       });
 
@@ -640,7 +653,7 @@ You can view the full ticket at: ${
       try {
         await sendEmail({
           to: ticket.fromEmail,
-          subject: `Re: Ticket Received: ${ticket.subject} [${ticket.id}]`,
+          subject: `Re: ${ticket.subject} [${ticket.id}]`,
           text: `${input.content}
 
 ---
@@ -675,36 +688,78 @@ This email thread is linked to your support ticket.`,
       return message;
     }),
 
-  // Get ticket statistics (admin only)
+  // Get ticket statistics
   getStats: protectedProcedure.query(async ({ ctx }) => {
-    // Only admins can view statistics
-    if (ctx.session.user.role !== "ADMIN") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Only admins can view statistics",
-      });
+    if (ctx.session.user.role === "ADMIN") {
+      // Admins see all ticket statistics
+      const [
+        totalTickets,
+        openTickets,
+        inProgressTickets,
+        resolvedTickets,
+        closedTickets,
+        unassignedTickets,
+      ] = await Promise.all([
+        ctx.db.ticket.count(),
+        ctx.db.ticket.count({ where: { status: "OPEN" } }),
+        ctx.db.ticket.count({ where: { status: "IN_PROGRESS" } }),
+        ctx.db.ticket.count({ where: { status: "RESOLVED" } }),
+        ctx.db.ticket.count({ where: { status: "CLOSED" } }),
+        ctx.db.ticket.count({ where: { assignedToId: null } }),
+      ]);
+
+      return {
+        total: totalTickets,
+        open: openTickets,
+        inProgress: inProgressTickets,
+        resolved: resolvedTickets,
+        closed: closedTickets,
+        unassigned: unassignedTickets,
+      };
+    } else {
+      // Non-admin users see only their assigned ticket statistics
+      const [
+        totalTickets,
+        openTickets,
+        inProgressTickets,
+        resolvedTickets,
+        closedTickets,
+      ] = await Promise.all([
+        ctx.db.ticket.count({ where: { assignedToId: ctx.session.user.id } }),
+        ctx.db.ticket.count({
+          where: {
+            status: "OPEN",
+            assignedToId: ctx.session.user.id,
+          },
+        }),
+        ctx.db.ticket.count({
+          where: {
+            status: "IN_PROGRESS",
+            assignedToId: ctx.session.user.id,
+          },
+        }),
+        ctx.db.ticket.count({
+          where: {
+            status: "RESOLVED",
+            assignedToId: ctx.session.user.id,
+          },
+        }),
+        ctx.db.ticket.count({
+          where: {
+            status: "CLOSED",
+            assignedToId: ctx.session.user.id,
+          },
+        }),
+      ]);
+
+      return {
+        total: totalTickets,
+        open: openTickets,
+        inProgress: inProgressTickets,
+        resolved: resolvedTickets,
+        closed: closedTickets,
+        unassigned: 0, // Non-admin users don't have unassigned tickets
+      };
     }
-
-    const [
-      totalTickets,
-      openTickets,
-      inProgressTickets,
-      resolvedTickets,
-      closedTickets,
-    ] = await Promise.all([
-      ctx.db.ticket.count(),
-      ctx.db.ticket.count({ where: { status: "OPEN" } }),
-      ctx.db.ticket.count({ where: { status: "IN_PROGRESS" } }),
-      ctx.db.ticket.count({ where: { status: "RESOLVED" } }),
-      ctx.db.ticket.count({ where: { status: "CLOSED" } }),
-    ]);
-
-    return {
-      total: totalTickets,
-      open: openTickets,
-      inProgress: inProgressTickets,
-      resolved: resolvedTickets,
-      closed: closedTickets,
-    };
   }),
 });

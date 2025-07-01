@@ -2,17 +2,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface PageSkeletonProps {
   headerIcon?: React.ReactNode;
-  headerTitle?: string;
-  headerDescription?: string;
   children?: React.ReactNode;
 }
 
-export function PageSkeleton({
-  headerIcon,
-  headerTitle = "Loading...",
-  headerDescription = "Please wait while we load the content",
-  children,
-}: PageSkeletonProps) {
+export function PageSkeleton({ headerIcon, children }: PageSkeletonProps) {
   return (
     <div className="h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex overflow-hidden">
       {/* Side Navigation Skeleton */}

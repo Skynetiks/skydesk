@@ -12,13 +12,16 @@ import {
   UserIcon,
   BarChart3Icon,
   ChevronRight,
+  Building2Icon,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 interface SideNavProps {
-  activeTab: "dashboard" | "tickets" | "config" | "users";
-  onTabChange: (tab: "dashboard" | "tickets" | "config" | "users") => void;
+  activeTab: "dashboard" | "tickets" | "clients" | "config" | "users";
+  onTabChange: (
+    tab: "dashboard" | "tickets" | "clients" | "config" | "users"
+  ) => void;
   isAdmin: boolean;
   stats?: {
     total: number;
@@ -26,6 +29,7 @@ interface SideNavProps {
     inProgress: number;
     resolved: number;
     closed: number;
+    unassigned: number;
   };
   currentUser?: {
     name?: string;
@@ -57,11 +61,24 @@ export function SideNav({
       id: "tickets" as const,
       label: "Tickets",
       icon: TicketIcon,
-      description: "Manage support tickets",
+      description: isAdmin
+        ? "Active & unassigned tickets"
+        : "Your active tickets",
       color: "from-blue-600 to-indigo-600",
       hoverColor: "hover:from-blue-700 hover:to-indigo-700",
-      count: stats?.total,
+      count: isAdmin
+        ? (stats?.inProgress || 0) + (stats?.unassigned || 0) // Admin: in progress + unassigned
+        : stats?.inProgress || 0, // Non-admin: only in progress
       route: "/tickets",
+    },
+    {
+      id: "clients" as const,
+      label: "Clients",
+      icon: Building2Icon,
+      description: "Manage client database",
+      color: "from-emerald-600 to-green-600",
+      hoverColor: "hover:from-emerald-700 hover:to-green-700",
+      route: "/clients",
     },
     ...(isAdmin
       ? [

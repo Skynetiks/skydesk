@@ -1,20 +1,12 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
+import { createTRPCRouter, adminProcedure } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { testImapConnection } from "@/lib/imap-email-checker";
 import { verifyEmailConnection } from "@/lib/email";
 
 export const configRouter = createTRPCRouter({
   // Get all configurations
-  getAll: protectedProcedure.query(async ({ ctx }) => {
-    // Only admins can view configurations
-    if (ctx.session.user.role !== "ADMIN") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Only admins can view configurations",
-      });
-    }
-
+  getAll: adminProcedure.query(async ({ ctx }) => {
     const configs = await ctx.db.configuration.findMany({
       orderBy: {
         key: "asc",
@@ -25,17 +17,9 @@ export const configRouter = createTRPCRouter({
   }),
 
   // Get a specific configuration
-  getByKey: protectedProcedure
+  getByKey: adminProcedure
     .input(z.object({ key: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Only admins can view configurations
-      if (ctx.session.user.role !== "ADMIN") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only admins can view configurations",
-        });
-      }
-
       const config = await ctx.db.configuration.findUnique({
         where: { key: input.key },
       });
@@ -44,7 +28,7 @@ export const configRouter = createTRPCRouter({
     }),
 
   // Create or update configuration
-  upsert: protectedProcedure
+  upsert: adminProcedure
     .input(
       z.object({
         key: z.string(),
@@ -53,14 +37,6 @@ export const configRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Only admins can modify configurations
-      if (ctx.session.user.role !== "ADMIN") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only admins can modify configurations",
-        });
-      }
-
       const config = await ctx.db.configuration.upsert({
         where: { key: input.key },
         update: {
@@ -80,17 +56,9 @@ export const configRouter = createTRPCRouter({
     }),
 
   // Delete configuration
-  delete: protectedProcedure
+  delete: adminProcedure
     .input(z.object({ key: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Only admins can delete configurations
-      if (ctx.session.user.role !== "ADMIN") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only admins can delete configurations",
-        });
-      }
-
       await ctx.db.configuration.delete({
         where: { key: input.key },
       });
@@ -99,15 +67,7 @@ export const configRouter = createTRPCRouter({
     }),
 
   // Test IMAP connection
-  testImap: protectedProcedure.mutation(async ({ ctx }) => {
-    // Only admins can test IMAP connection
-    if (ctx.session.user.role !== "ADMIN") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Only admins can test IMAP connection",
-      });
-    }
-
+  testImap: adminProcedure.mutation(async () => {
     const success = await testImapConnection();
 
     if (!success) {
@@ -122,15 +82,7 @@ export const configRouter = createTRPCRouter({
   }),
 
   // Test SMTP connection
-  testSmtp: protectedProcedure.mutation(async ({ ctx }) => {
-    // Only admins can test SMTP connection
-    if (ctx.session.user.role !== "ADMIN") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Only admins can test SMTP connection",
-      });
-    }
-
+  testSmtp: adminProcedure.mutation(async () => {
     const success = await verifyEmailConnection();
 
     if (!success) {

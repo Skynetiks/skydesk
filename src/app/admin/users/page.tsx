@@ -18,16 +18,12 @@ export default function AdminUsersPage() {
       enabled: !!session,
     });
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "config" | "users"
   >("users");
 
   if (status === "loading" || isUserLoading) {
     return (
-      <PageSkeleton
-        headerIcon={<UsersIcon className="w-6 h-6 text-white" />}
-        headerTitle="User Management"
-        headerDescription="Manage team members and their permissions"
-      />
+      <PageSkeleton headerIcon={<UsersIcon className="w-6 h-6 text-white" />} />
     );
   }
 
