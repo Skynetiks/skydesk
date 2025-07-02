@@ -2,6 +2,10 @@ import { db } from "@/server/db";
 import type { Ticket, User } from "@prisma/client";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import {
+  generateTicketConfirmationEmail,
+  generateTicketRejectionEmail,
+} from "@/lib/email-templates";
 
 interface EmailConfig {
   host: string;
@@ -61,6 +65,40 @@ async function getSystemUserId(): Promise<string> {
   throw new Error(
     "No system user or admin user found. Please run the database seed first."
   );
+}
+
+// Check if email is from a registered client
+async function findClientByEmail(
+  email: string
+): Promise<{ id: string; name: string; emails: string[] } | null> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Get all clients and check their emails manually for better matching
+  const allClients = await db.client.findMany({
+    select: {
+      id: true,
+      name: true,
+      emails: true,
+    },
+  });
+
+  // Find client by checking if any of their emails match
+  const client = allClients.find((client) =>
+    client.emails.some((email) => {
+      const normalizedStoredEmail = email.toLowerCase().trim();
+      return normalizedStoredEmail === normalizedEmail;
+    })
+  );
+
+  return client || null;
+}
+
+// Get client-only tickets configuration
+async function getClientOnlyTicketsConfig(): Promise<boolean> {
+  const config = await db.configuration.findUnique({
+    where: { key: "CLIENT_ONLY_TICKETS" },
+  });
+  return config?.value === "true";
 }
 
 // Mark email as read
@@ -279,6 +317,51 @@ async function processEmail(emailData: {
     return;
   }
 
+  const client = await findClientByEmail(email);
+  let clientId: string | undefined = undefined;
+
+  if (client) {
+    console.log(
+      `Found client: ${client.name} with emails: ${client.emails.join(", ")}`
+    );
+    clientId = client.id;
+  } else {
+    console.log(`No client found for email: ${email}`);
+  }
+
+  // Check if client-only tickets is enabled and if email is from a registered client
+  const clientOnlyTickets = await getClientOnlyTicketsConfig();
+  if (clientOnlyTickets && !client) {
+    console.log(
+      `Skipping email from ${email}: Client-only tickets enabled but email is not from a registered client`
+    );
+
+    // Send rejection email
+    try {
+      const { sendEmail } = await import("@/lib/email");
+      const { html, text } = await generateTicketRejectionEmail(subject);
+
+      await sendEmail({
+        to: email,
+        subject: `Ticket Request Rejected: ${subject}`,
+        text,
+        html,
+      });
+
+      console.log(`Rejection email sent to ${email} for non-registered client`);
+    } catch (error) {
+      console.error("Failed to send rejection email:", error);
+    }
+
+    return;
+  }
+
+  if (clientOnlyTickets && client) {
+    console.log(
+      `Email from ${email} is from a registered client, proceeding with ticket creation`
+    );
+  }
+
   // This is a new email, create a new ticket
   const emailId = generateEmailId();
   const systemUserId = await getSystemUserId();
@@ -286,6 +369,8 @@ async function processEmail(emailData: {
   console.log(
     `Creating new ticket for email from: ${email}, subject: ${subject}`
   );
+
+  console.log(`Creating ticket with clientId: ${clientId || "null"}`);
 
   // Create ticket
   const ticket = await db.ticket.create({
@@ -295,6 +380,7 @@ async function processEmail(emailData: {
       fromName: name || undefined,
       emailId,
       createdById: systemUserId,
+      clientId: clientId,
       lastMessageId: messageId || undefined,
       messageIds: messageId ? [messageId] : [],
       messages: {
@@ -330,28 +416,18 @@ async function processEmail(emailData: {
         },
       });
 
+      const { html, text: emailText } = await generateTicketConfirmationEmail(
+        ticket.id,
+        subject,
+        text,
+        ticket.priority
+      );
+
       await sendEmail({
         to: email,
         subject: `Ticket Received: ${subject} [${ticket.id}]`,
-        text: `Thank you for contacting us. We have received your ticket and opened a case for you.
-
-Ticket Details:
-- Ticket ID: ${ticket.id}
-- Subject: ${subject}
-- Status: Open
-- Priority: Medium
-
-Your original message:
-${text}
-
-You can reply to this email thread to add more information to your ticket. Our support team will review your request and get back to you as soon as possible.
-
-Best regards,
-Support Team
-
----
-Ticket ID: ${ticket.id}
-This email thread is linked to your support ticket.`,
+        text: emailText,
+        html,
         headers: {
           "Message-ID": confirmationMessageId,
           ...(messageId

@@ -132,6 +132,23 @@ export function TicketDetail() {
             <p className="text-gray-600 mt-2">
               From: {ticket.fromName || ticket.fromEmail}
             </p>
+            {ticket.client && (
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-gray-600">
+                  Client: {ticket.client.companyName || ticket.client.name}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    window.location.href = `/clients?view=${ticket.client?.id}`;
+                  }}
+                >
+                  View Client
+                </Button>
+              </div>
+            )}
             <p className="text-gray-600">
               Created:{" "}
               {formatDistanceToNow(new Date(ticket.createdAt), {

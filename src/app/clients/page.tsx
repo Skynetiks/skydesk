@@ -13,6 +13,7 @@ export default function ClientsPage() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "tickets" | "clients" | "config" | "users"
   >("clients");
+
   const { data: session, status: sessionStatus } = useSession();
   const { data: stats } = trpc.ticket.getStats.useQuery(undefined, {
     enabled: !!session,

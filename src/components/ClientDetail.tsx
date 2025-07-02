@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/app/_trpc/client";
 import { format } from "date-fns";
+import Link from "next/link";
 
 interface ClientDetailProps {
   clientId: string;
@@ -203,58 +204,63 @@ export function ClientDetail({
               {client.tickets.length > 0 ? (
                 <div className="space-y-3">
                   {client.tickets.map((ticket) => (
-                    <div
+                    <Link
                       key={ticket.id}
-                      className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
+                      href={`/tickets/${ticket.id}`}
+                      className="block"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900">
-                            {ticket.subject}
-                          </h4>
-                          <p className="text-sm text-gray-600 mt-1">
-                            From: {ticket.fromEmail}
-                          </p>
-                          <div className="flex items-center gap-4 mt-2">
-                            <Badge
-                              variant={
-                                ticket.status === "OPEN"
-                                  ? "default"
-                                  : ticket.status === "IN_PROGRESS"
-                                  ? "secondary"
-                                  : "outline"
-                              }
-                            >
-                              {ticket.status.replace("_", " ")}
-                            </Badge>
-                            <Badge
-                              variant={
-                                ticket.priority === "HIGH" ||
-                                ticket.priority === "URGENT"
-                                  ? "destructive"
-                                  : "outline"
-                              }
-                            >
-                              {ticket.priority}
-                            </Badge>
-                            <span className="text-xs text-gray-500">
-                              {format(
-                                new Date(ticket.createdAt),
-                                "MMM d, yyyy"
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                        {ticket.assignedTo && (
-                          <div className="text-right">
-                            <p className="text-xs text-gray-500">Assigned to</p>
-                            <p className="text-sm font-medium">
-                              {ticket.assignedTo.name}
+                      <div className="border rounded-lg p-3 hover:bg-gray-50 transition-colors cursor-pointer">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900">
+                              {ticket.subject}
+                            </h4>
+                            <p className="text-sm text-gray-600 mt-1">
+                              From: {ticket.fromEmail}
                             </p>
+                            <div className="flex items-center gap-4 mt-2">
+                              <Badge
+                                variant={
+                                  ticket.status === "OPEN"
+                                    ? "default"
+                                    : ticket.status === "IN_PROGRESS"
+                                    ? "secondary"
+                                    : "outline"
+                                }
+                              >
+                                {ticket.status.replace("_", " ")}
+                              </Badge>
+                              <Badge
+                                variant={
+                                  ticket.priority === "HIGH" ||
+                                  ticket.priority === "URGENT"
+                                    ? "destructive"
+                                    : "outline"
+                                }
+                              >
+                                {ticket.priority}
+                              </Badge>
+                              <span className="text-xs text-gray-500">
+                                {format(
+                                  new Date(ticket.createdAt),
+                                  "MMM d, yyyy"
+                                )}
+                              </span>
+                            </div>
                           </div>
-                        )}
+                          {ticket.assignedTo && (
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500">
+                                Assigned to
+                              </p>
+                              <p className="text-sm font-medium">
+                                {ticket.assignedTo.name}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               ) : (

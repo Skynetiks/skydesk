@@ -6,6 +6,11 @@ import {
 } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { sendEmail } from "@/lib/email";
+import {
+  generateTicketConfirmationEmail,
+  generateTicketRejectionEmail,
+  generateTicketReplyEmail,
+} from "@/lib/email-templates";
 import bcrypt from "bcryptjs";
 import { TicketStatus, Priority } from "@prisma/client";
 
@@ -19,21 +24,24 @@ export const ticketRouter = createTRPCRouter({
           .optional(),
         priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
         assignedToId: z.string().optional(),
+        clientId: z.string().optional(),
         limit: z.number().min(1).max(100).default(20),
         cursor: z.string().nullish(),
       })
     )
     .query(async ({ ctx, input }) => {
-      const { limit, cursor, status, priority, assignedToId } = input;
+      const { limit, cursor, status, priority, assignedToId, clientId } = input;
 
       // Users can only see their assigned tickets, admins can see all
       const whereClause: {
         status?: TicketStatus;
         priority?: Priority;
         assignedToId?: string;
+        clientId?: string;
       } = {
         status: status as TicketStatus | undefined,
         priority: priority as Priority | undefined,
+        clientId: clientId,
       };
 
       if (ctx.session.user.role !== "ADMIN") {
@@ -62,6 +70,14 @@ export const ticketRouter = createTRPCRouter({
               id: true,
               name: true,
               email: true,
+            },
+          },
+          client: {
+            select: {
+              id: true,
+              name: true,
+              companyName: true,
+              emails: true,
             },
           },
           messages: {
@@ -115,6 +131,14 @@ export const ticketRouter = createTRPCRouter({
               email: true,
             },
           },
+          client: {
+            select: {
+              id: true,
+              name: true,
+              companyName: true,
+              emails: true,
+            },
+          },
           messages: {
             orderBy: {
               createdAt: "asc",
@@ -153,6 +177,72 @@ export const ticketRouter = createTRPCRouter({
       }
 
       return ticket;
+    }),
+
+  // Get tickets by client ID
+  getByClientId: protectedProcedure
+    .input(
+      z.object({
+        clientId: z.string().cuid(),
+        limit: z.number().min(1).max(100).default(20),
+        cursor: z.string().nullish(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const { limit, cursor, clientId } = input;
+
+      const items = await ctx.db.ticket.findMany({
+        take: limit + 1,
+        cursor: cursor ? { id: cursor } : undefined,
+        orderBy: {
+          createdAt: "desc",
+        },
+        where: {
+          clientId: clientId,
+        },
+        include: {
+          assignedTo: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          messages: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+          },
+          attachments: {
+            take: 5,
+          },
+          _count: {
+            select: {
+              messages: true,
+              attachments: true,
+            },
+          },
+        },
+      });
+
+      let nextCursor: typeof cursor | undefined = undefined;
+      if (items.length > limit) {
+        const nextItem = items.pop();
+        nextCursor = nextItem!.id;
+      }
+
+      return {
+        items,
+        nextCursor,
+      };
     }),
 
   // Create a new ticket (from email webhook)
@@ -197,6 +287,137 @@ export const ticketRouter = createTRPCRouter({
         });
       }
 
+      // Check if client-only tickets is enabled and if email is from a registered client
+      const clientOnlyTicketsConfig = await ctx.db.configuration.findUnique({
+        where: { key: "CLIENT_ONLY_TICKETS" },
+      });
+
+      let clientId: string | undefined = undefined;
+
+      if (clientOnlyTicketsConfig?.value === "true") {
+        // Normalize the incoming email
+        const normalizedEmail = input.fromEmail.toLowerCase().trim();
+
+        // Debug: Log the email we're looking for
+        console.log(`Looking for client with email: ${normalizedEmail}`);
+
+        // Get all clients and check their emails manually for better debugging
+        const allClients = await ctx.db.client.findMany({
+          select: {
+            id: true,
+            name: true,
+            emails: true,
+          },
+        });
+
+        console.log(`Found ${allClients.length} clients in database`);
+        console.log(`Looking for email: "${normalizedEmail}"`);
+
+        allClients.forEach((client) => {
+          console.log(
+            `Client: ${client.name}, Emails: [${client.emails
+              .map((e) => `"${e}"`)
+              .join(", ")}]`
+          );
+
+          // Check each email individually
+          client.emails.forEach((email) => {
+            const normalizedStoredEmail = email.toLowerCase().trim();
+            const matches = normalizedStoredEmail === normalizedEmail;
+            console.log(
+              `  Comparing "${normalizedStoredEmail}" with "${normalizedEmail}" = ${matches}`
+            );
+          });
+        });
+
+        // Find client by checking if any of their emails match
+        const client = allClients.find((client) =>
+          client.emails.some((email) => {
+            const normalizedStoredEmail = email.toLowerCase().trim();
+            return normalizedStoredEmail === normalizedEmail;
+          })
+        );
+
+        // Debug: Log if client was found
+        if (client) {
+          console.log(
+            `Found client: ${client.name} with emails: ${client.emails.join(
+              ", "
+            )}`
+          );
+        } else {
+          console.log(`No client found for email: ${normalizedEmail}`);
+        }
+
+        if (!client) {
+          // Send rejection email before throwing error
+          try {
+            const { html, text } = await generateTicketRejectionEmail(
+              input.subject
+            );
+
+            await sendEmail({
+              to: input.fromEmail,
+              subject: `Ticket Request Rejected: ${input.subject}`,
+              text,
+              html,
+            });
+
+            console.log(
+              `Rejection email sent to ${input.fromEmail} for non-registered client`
+            );
+          } catch (error) {
+            console.error("Failed to send rejection email:", error);
+          }
+
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Email not from registered client. Client-only tickets are enabled.",
+          });
+        } else {
+          clientId = client.id;
+        }
+      } else {
+        // Even if client-only tickets is disabled, try to find and map the client
+        const normalizedEmail = input.fromEmail.toLowerCase().trim();
+
+        console.log(
+          `Client-only tickets disabled, looking for client with email: ${normalizedEmail}`
+        );
+
+        // Get all clients and check their emails manually
+        const allClients = await ctx.db.client.findMany({
+          select: {
+            id: true,
+            name: true,
+            emails: true,
+          },
+        });
+
+        // Find client by checking if any of their emails match
+        const client = allClients.find((client) =>
+          client.emails.some(
+            (email) => email.toLowerCase().trim() === normalizedEmail
+          )
+        );
+
+        if (client) {
+          console.log(
+            `Found client for mapping: ${
+              client.name
+            } with emails: ${client.emails.join(", ")}`
+          );
+          clientId = client.id;
+        } else {
+          console.log(
+            `No client found for mapping with email: ${normalizedEmail}`
+          );
+        }
+      }
+
+      console.log(`Creating ticket with clientId: ${clientId || "null"}`);
+
       const ticket = await ctx.db.ticket.create({
         data: {
           subject: input.subject,
@@ -204,6 +425,7 @@ export const ticketRouter = createTRPCRouter({
           fromName: input.fromName,
           emailId: input.emailId,
           createdById: systemUser.id,
+          clientId: clientId,
           lastMessageId: input.messageId || undefined,
           messageIds: input.messageId ? [input.messageId] : [],
           messages: {
@@ -238,82 +460,18 @@ export const ticketRouter = createTRPCRouter({
           process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
         }`;
 
+        const { html, text } = await generateTicketConfirmationEmail(
+          ticket.id,
+          input.subject,
+          input.content,
+          ticket.priority
+        );
+
         await sendEmail({
           to: input.fromEmail,
           subject: `Ticket Received: ${input.subject} [${ticket.id}]`,
-          text: `Thank you for contacting us. We have received your ticket and opened a case for you.
-
-Ticket Details:
-- Ticket ID: ${ticket.id}
-- Subject: ${input.subject}
-- Status: Open
-- Priority: Medium
-
-Your original message:
-${input.content}
-
-You can reply to this email thread to add more information to your ticket. Our support team will review your request and get back to you as soon as possible.
-
-If you need to provide additional information or have any questions, please reply to this email.
-
-Best regards,
-Support Team
-
----
-Ticket ID: ${ticket.id}
-This email thread is linked to your support ticket.`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <div style="background-color: #f8f9fa; padding: 20px; border-left: 4px solid #007bff;">
-                <h2 style="color: #007bff; margin: 0 0 15px 0;">Ticket Received</h2>
-                <p style="margin: 0 0 20px 0; color: #333;">Thank you for contacting us. We have received your ticket and opened a case for you.</p>
-              </div>
-              
-              <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e9ecef; margin: 20px 0;">
-                <h3 style="color: #333; margin: 0 0 15px 0;">Ticket Details</h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                  <tr>
-                    <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: bold; color: #333;">Ticket ID:</td>
-                    <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; color: #666;">${ticket.id}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: bold; color: #333;">Subject:</td>
-                    <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; color: #666;">${input.subject}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: bold; color: #333;">Status:</td>
-                    <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; color: #28a745;">Open</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; font-weight: bold; color: #333;">Priority:</td>
-                    <td style="padding: 8px 0; color: #ffc107;">Medium</td>
-                  </tr>
-                </table>
-              </div>
-              
-              <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
-                <h4 style="margin: 0 0 10px 0; color: #856404;">Your Original Message:</h4>
-                <div style="white-space: pre-wrap; background-color: white; padding: 15px; border-radius: 4px; color: #333;">${input.content}</div>
-              </div>
-              
-              <div style="background-color: #d1ecf1; padding: 15px; border-left: 4px solid #17a2b8; margin: 20px 0;">
-                <p style="margin: 0; color: #0c5460;">
-                  <strong>Important:</strong> You can reply to this email thread to add more information to your ticket. 
-                  Our support team will review your request and get back to you as soon as possible.
-                </p>
-              </div>
-              
-              <div style="text-align: center; margin: 30px 0;">
-                <p style="color: #666; margin: 0;">Best regards,<br>Support Team</p>
-              </div>
-              
-              <hr style="border: none; border-top: 1px solid #e9ecef; margin: 30px 0;">
-              <div style="text-align: center; color: #999; font-size: 12px;">
-                <p style="margin: 0;"><strong>Ticket ID:</strong> ${ticket.id}</p>
-                <p style="margin: 5px 0 0 0;">This email thread is linked to your support ticket.</p>
-              </div>
-            </div>
-          `,
+          text,
+          html,
           headers: {
             "Message-ID": confirmationMessageId,
             ...(input.messageId && { "In-Reply-To": input.messageId }),
@@ -651,29 +809,16 @@ You can view the full ticket at: ${
 
       // Send email reply to the user
       try {
+        const { html, text } = await generateTicketReplyEmail(
+          ticket.id,
+          input.content
+        );
+
         await sendEmail({
           to: ticket.fromEmail,
           subject: `Re: ${ticket.subject} [${ticket.id}]`,
-          text: `${input.content}
-
----
-Ticket ID: ${ticket.id}
-This email thread is linked to your support ticket.`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e9ecef; margin: 20px 0;">
-                ${input.content.replace(/\n/g, "<br>")}
-              </div>
-              
-              <hr style="border: none; border-top: 1px solid #e9ecef; margin: 30px 0;">
-              <div style="text-align: center; color: #999; font-size: 12px;">
-                <p style="margin: 0;"><strong>Ticket ID:</strong> ${
-                  ticket.id
-                }</p>
-                <p style="margin: 5px 0 0 0;">This email thread is linked to your support ticket.</p>
-              </div>
-            </div>
-          `,
+          text,
+          html,
           headers: {
             "Message-ID": messageId,
             "In-Reply-To": inReplyTo,
@@ -762,4 +907,153 @@ This email thread is linked to your support ticket.`,
       };
     }
   }),
+
+  // Bulk update ticket status
+  bulkUpdateStatus: protectedProcedure
+    .input(
+      z.object({
+        ticketIds: z.array(z.string()),
+        status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { ticketIds, status } = input;
+
+      // Get all tickets to check permissions
+      const tickets = await ctx.db.ticket.findMany({
+        where: { id: { in: ticketIds } },
+        select: { id: true, assignedToId: true },
+      });
+
+      if (tickets.length !== ticketIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Some tickets were not found",
+        });
+      }
+
+      // Check permissions - users can only update their assigned tickets, admins can update any
+      if (ctx.session.user.role !== "ADMIN") {
+        const unauthorizedTickets = tickets.filter(
+          (ticket) => ticket.assignedToId !== ctx.session.user.id
+        );
+        if (unauthorizedTickets.length > 0) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only update status of tickets assigned to you",
+          });
+        }
+      }
+
+      // Update all tickets
+      const result = await ctx.db.ticket.updateMany({
+        where: { id: { in: ticketIds } },
+        data: { status },
+      });
+
+      return {
+        success: true,
+        updatedCount: result.count,
+      };
+    }),
+
+  // Bulk assign tickets
+  bulkAssign: protectedProcedure
+    .input(
+      z.object({
+        ticketIds: z.array(z.string()),
+        userId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { ticketIds, userId } = input;
+
+      // Only admins can assign tickets
+      if (ctx.session.user.role !== "ADMIN") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only admins can assign tickets",
+        });
+      }
+
+      // Verify the user exists
+      const user = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true },
+      });
+
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      // Get tickets to send notifications
+      const tickets = await ctx.db.ticket.findMany({
+        where: { id: { in: ticketIds } },
+        select: { id: true, subject: true, fromEmail: true },
+      });
+
+      if (tickets.length !== ticketIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Some tickets were not found",
+        });
+      }
+
+      // Update all tickets
+      const result = await ctx.db.ticket.updateMany({
+        where: { id: { in: ticketIds } },
+        data: { assignedToId: userId },
+      });
+
+      // Send notification email to the assigned user
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: `Bulk Ticket Assignment: ${tickets.length} tickets assigned`,
+          text: `You have been assigned ${tickets.length} new tickets:
+
+${tickets.map((ticket) => `- ${ticket.subject} (ID: ${ticket.id})`).join("\n")}
+
+Please review and respond to these tickets as soon as possible.`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Bulk Ticket Assignment</h2>
+              <p>You have been assigned <strong>${
+                tickets.length
+              }</strong> new tickets:</p>
+              
+              <ul style="list-style-type: none; padding: 0;">
+                ${tickets
+                  .map(
+                    (ticket) => `
+                  <li style="padding: 10px; margin: 5px 0; background-color: #f8f9fa; border-left: 4px solid #007bff;">
+                    <strong>${ticket.subject}</strong><br>
+                    <small style="color: #666;">ID: ${ticket.id}</small>
+                  </li>
+                `
+                  )
+                  .join("")}
+              </ul>
+              
+              <p>Please review and respond to these tickets as soon as possible.</p>
+            </div>
+          `,
+        });
+      } catch (error) {
+        console.error(
+          "Failed to send bulk assignment notification email:",
+          error
+        );
+        // Don't throw error, just log it
+      }
+
+      return {
+        success: true,
+        updatedCount: result.count,
+        assignedTo: user,
+      };
+    }),
 });

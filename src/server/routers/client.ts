@@ -50,6 +50,13 @@ export const clientRouter = createTRPCRouter({
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,
         orderBy: { createdAt: "desc" },
+        include: {
+          _count: {
+            select: {
+              tickets: true,
+            },
+          },
+        },
       });
 
       let nextCursor: typeof cursor | undefined = undefined;
@@ -91,12 +98,33 @@ export const clientRouter = createTRPCRouter({
       return client;
     }),
 
+  // Debug: Get all clients with their emails (temporary)
+  debugGetAllClients: protectedProcedure.query(async ({ ctx }) => {
+    const clients = await ctx.db.client.findMany({
+      select: {
+        id: true,
+        name: true,
+        emails: true,
+        companyName: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return clients;
+  }),
+
   // Create new client
   create: adminProcedure
     .input(clientInputSchema)
     .mutation(async ({ ctx, input }) => {
+      // Normalize emails to lowercase
+      const normalizedInput = {
+        ...input,
+        emails: input.emails.map((email) => email.toLowerCase().trim()),
+      };
+
       const client = await ctx.db.client.create({
-        data: input,
+        data: normalizedInput,
       });
 
       return client;
@@ -119,9 +147,17 @@ export const clientRouter = createTRPCRouter({
         });
       }
 
+      // Normalize emails to lowercase if emails are being updated
+      const normalizedData = {
+        ...data,
+        ...(data.emails && {
+          emails: data.emails.map((email) => email.toLowerCase().trim()),
+        }),
+      };
+
       const client = await ctx.db.client.update({
         where: { id },
-        data,
+        data: normalizedData,
       });
 
       return client;
@@ -247,7 +283,7 @@ export const clientRouter = createTRPCRouter({
                   value
                     ?.toString()
                     .split(/[,;]/)
-                    .map((e: string) => e.trim())
+                    .map((e: string) => e.trim().toLowerCase())
                     .filter(Boolean) || [];
                 clientData.emails = emails;
               } else if (headerLower.includes("phone")) {

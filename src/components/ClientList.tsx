@@ -46,6 +46,19 @@ export function ClientList({ isAdmin }: ClientListProps) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+
+  // Check for view parameter in URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewClientId = urlParams.get("view");
+    if (viewClientId) {
+      setSelectedClient(viewClientId);
+      // Clear the URL parameter
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("view");
+      window.history.replaceState({}, "", newUrl.toString());
+    }
+  }, []);
   const [editingClient, setEditingClient] = useState<{
     id: string;
     name: string;
@@ -355,6 +368,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
               <TableHead>Emails</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Location</TableHead>
+              <TableHead className="w-[120px]">Tickets</TableHead>
               <TableHead className="w-[100px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -362,7 +376,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 7 : 6}
+                  colSpan={isAdmin ? 8 : 7}
                   className="text-center py-8"
                 >
                   <div className="flex items-center justify-center gap-2">
@@ -374,7 +388,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
             ) : allClients.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 7 : 6}
+                  colSpan={isAdmin ? 8 : 7}
                   className="text-center py-8"
                 >
                   <p className="text-gray-500">No clients found</p>
@@ -473,6 +487,23 @@ export function ClientList({ isAdmin }: ClientListProps) {
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {client._count?.tickets || 0} tickets
+                        </Badge>
+                        {client._count?.tickets > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleView(client.id)}
+                            className="h-6 w-6 p-0 text-blue-600 hover:text-blue-700"
+                          >
+                            <EyeIcon className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">

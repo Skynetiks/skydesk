@@ -5,6 +5,8 @@ import { trpc } from "@/app/_trpc/client";
 import { Button } from "@/components/ui/button";
 import { useSession } from "next-auth/react";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -26,6 +28,7 @@ import {
   CheckCircleIcon,
   AlertCircleIcon,
   SendIcon,
+  UploadIcon,
 } from "lucide-react";
 
 interface ConfigItem {
@@ -33,7 +36,7 @@ interface ConfigItem {
   value: string;
   description: string;
   required: boolean;
-  type: "text" | "password" | "number" | "boolean";
+  type: "text" | "password" | "number" | "boolean" | "file";
 }
 
 const IMAP_CONFIGS: ConfigItem[] = [
@@ -119,6 +122,63 @@ const SMTP_CONFIGS: ConfigItem[] = [
   },
 ];
 
+const TICKET_CONFIGS: ConfigItem[] = [
+  {
+    key: "CLIENT_ONLY_TICKETS",
+    value: "false",
+    description:
+      "Only allow emails from registered clients to create tickets (true/false)",
+    required: false,
+    type: "boolean",
+  },
+];
+
+const COMPANY_CONFIGS: ConfigItem[] = [
+  {
+    key: "COMPANY_NAME",
+    value: "",
+    description: "Your company name (used in email templates)",
+    required: true,
+    type: "text",
+  },
+  {
+    key: "COMPANY_LOGO",
+    value: "",
+    description:
+      "Company logo URL (upload an image to get the URL). Recommended: 200x200 to 500x500 pixels, square aspect ratio.",
+    required: false,
+    type: "file",
+  },
+  {
+    key: "COMPANY_WEBSITE",
+    value: "",
+    description: "Your company website URL",
+    required: false,
+    type: "text",
+  },
+  {
+    key: "COMPANY_ADDRESS",
+    value: "",
+    description: "Your company address (used in email footers)",
+    required: false,
+    type: "text",
+  },
+  {
+    key: "COMPANY_PHONE",
+    value: "",
+    description: "Your company phone number",
+    required: false,
+    type: "text",
+  },
+  {
+    key: "COMPANY_EMAIL",
+    value: "",
+    description: "Your company support email",
+    required: false,
+    type: "text",
+  },
+];
+
 export function ConfigurationPanel() {
   const { data: session, status: sessionStatus } = useSession();
 
@@ -132,6 +192,7 @@ export function ConfigurationPanel() {
     "idle" | "testing" | "success" | "error"
   >("idle");
   const [testMessage, setTestMessage] = useState("");
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Show loading state while session is loading
   if (sessionStatus === "loading") {
@@ -230,8 +291,56 @@ export function ConfigurationPanel() {
 
   const handleTestSmtpConnection = async () => {
     setSmtpTestStatus("testing");
+    try {
+      await testSmtpMutation.mutateAsync();
+      setSmtpTestStatus("success");
+      setTestMessage("SMTP connection test successful!");
+    } catch (error) {
+      setSmtpTestStatus("error");
+      setTestMessage(
+        error instanceof Error ? error.message : "SMTP test failed"
+      );
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    setUploadingFile(true);
     setTestMessage("");
-    testSmtpMutation.mutate();
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Upload failed");
+      }
+
+      setEditValue(data.url);
+      setTestMessage(
+        `Logo uploaded successfully! Dimensions: ${data.dimensions.width}x${data.dimensions.height} (ratio: ${data.dimensions.aspectRatio})`
+      );
+
+      // Show success toast
+      toast.success("Logo uploaded successfully!");
+    } catch (error) {
+      console.error("File upload failed:", error);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "File upload failed. Please try again.";
+      setTestMessage(errorMessage);
+
+      // Show error toast
+      toast.error(errorMessage);
+    } finally {
+      setUploadingFile(false);
+    }
   };
 
   const getConfigValue = (key: string): string => {
@@ -255,6 +364,7 @@ export function ConfigurationPanel() {
     if (key.includes("SECURE")) return "Security";
     if (key.includes("LIMIT")) return "Processing";
     if (key.includes("SUPPORT_EMAIL")) return "Notifications";
+    if (key.includes("CLIENT_ONLY_TICKETS")) return "Ticket";
     return "General";
   };
 
@@ -270,6 +380,8 @@ export function ConfigurationPanel() {
         return "bg-orange-50 text-orange-700 border-orange-200";
       case "Notifications":
         return "bg-pink-50 text-pink-700 border-pink-200";
+      case "Ticket":
+        return "bg-indigo-50 text-indigo-700 border-indigo-200";
       default:
         return "bg-gray-50 text-gray-700 border-gray-200";
     }
@@ -284,69 +396,72 @@ export function ConfigurationPanel() {
     testMutation: { isPending: boolean }
   ) => (
     <Card className="bg-white/50 backdrop-blur-sm border-white/20 shadow-lg">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <SettingsIcon className="w-5 h-5 text-gray-600" />
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <SettingsIcon className="w-4 h-4 text-gray-600" />
           {title}
         </CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription className="text-sm">{description}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0">
         {/* Test Connection Button */}
-        <div className="mb-6">
-          <div className="flex items-center gap-4">
-            <Button
-              onClick={testFunction}
-              disabled={testMutation.isPending || isLoading}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg"
-            >
-              {testMutation.isPending ? (
-                <>
-                  <RefreshCwIcon className="w-4 h-4 mr-2 animate-spin" />
-                  Testing...
-                </>
-              ) : (
-                <>
-                  <TestTubeIcon className="w-4 h-4 mr-2" />
-                  Test Connection
-                </>
-              )}
-            </Button>
+        {testFunction.toString() !== "() => {}" && (
+          <div className="mb-4">
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={testFunction}
+                disabled={testMutation.isPending || isLoading}
+                size="sm"
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg"
+              >
+                {testMutation.isPending ? (
+                  <>
+                    <RefreshCwIcon className="w-3 h-3 mr-1 animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <TestTubeIcon className="w-3 h-3 mr-1" />
+                    Test Connection
+                  </>
+                )}
+              </Button>
 
-            {testStatus !== "idle" && (
-              <div className="flex items-center gap-2">
-                {testStatus === "success" && (
-                  <CheckCircleIcon className="w-5 h-5 text-green-600" />
-                )}
-                {testStatus === "error" && (
-                  <AlertCircleIcon className="w-5 h-5 text-red-600" />
-                )}
-                <span
-                  className={`text-sm ${
-                    testStatus === "success"
-                      ? "text-green-600"
-                      : testStatus === "error"
-                      ? "text-red-600"
-                      : "text-gray-600"
-                  }`}
-                >
-                  {testMessage}
-                </span>
-              </div>
-            )}
+              {testStatus !== "idle" && (
+                <div className="flex items-center gap-2">
+                  {testStatus === "success" && (
+                    <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                  )}
+                  {testStatus === "error" && (
+                    <AlertCircleIcon className="w-4 h-4 text-red-600" />
+                  )}
+                  <span
+                    className={`text-xs ${
+                      testStatus === "success"
+                        ? "text-green-600"
+                        : testStatus === "error"
+                        ? "text-red-600"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    {testMessage}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Configuration Items */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="flex items-center gap-3 text-gray-500">
-              <RefreshCwIcon className="w-6 h-6 animate-spin" />
-              <span>Loading configurations...</span>
+          <div className="flex items-center justify-center py-8">
+            <div className="flex items-center gap-2 text-gray-500">
+              <RefreshCwIcon className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading configurations...</span>
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {configs.map((config) => {
               const currentValue = getConfigValue(config.key);
               const category = getConfigCategory(config.key);
@@ -354,105 +469,189 @@ export function ConfigurationPanel() {
               const isEditing = editingKey === config.key;
 
               return (
-                <Card
+                <div
                   key={config.key}
-                  className="bg-white/70 border-white/30 shadow-sm hover:shadow-md transition-shadow"
+                  className="flex flex-col p-3 bg-white/70 border-white/30 rounded-lg"
                 >
-                  <CardContent className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="p-2 bg-gray-100 rounded-lg">
-                            {getConfigIcon(config.key)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-semibold text-gray-900 text-base font-mono">
-                                {config.key}
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className={categoryColor}
-                              >
-                                {category}
-                              </Badge>
-                              {config.required && (
-                                <Badge
-                                  variant="destructive"
-                                  className="text-xs"
-                                >
-                                  Required
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              {config.description}
-                            </div>
-                          </div>
-                        </div>
-
-                        {isEditing ? (
-                          <div className="flex gap-2 mt-3">
-                            <Input
-                              type={
-                                config.type === "password" ? "password" : "text"
-                              }
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              className="flex-1 bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200"
-                              placeholder={`Enter ${config.key.toLowerCase()}`}
-                            />
-                            <Button
-                              onClick={handleSave}
-                              disabled={upsertMutation.isPending}
-                              size="sm"
-                              className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
-                            >
-                              {upsertMutation.isPending ? (
-                                <RefreshCwIcon className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <SaveIcon className="w-4 h-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              onClick={() => setEditingKey(null)}
-                              size="sm"
-                              className="border-gray-300 hover:bg-gray-50"
-                            >
-                              <XIcon className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-gray-800 font-mono break-all bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                            {config.type === "password" && currentValue
-                              ? "••••••••"
-                              : currentValue || "Not configured"}
-                          </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-gray-100 rounded-md">
+                      {getConfigIcon(config.key)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-gray-900 text-sm font-mono">
+                          {config.key}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${categoryColor}`}
+                        >
+                          {category}
+                        </Badge>
+                        {config.required && (
+                          <Badge variant="destructive" className="text-xs">
+                            Required
+                          </Badge>
                         )}
                       </div>
+                      <div className="text-xs text-gray-600">
+                        {config.description}
+                      </div>
+                    </div>
+                  </div>
 
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:ml-4">
-                        {!isEditing && (
+                  <div className="flex-1">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        {config.type === "boolean" ? (
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              checked={editValue === "true"}
+                              onCheckedChange={(checked) =>
+                                setEditValue(checked ? "true" : "false")
+                              }
+                            />
+                            <span className="text-sm text-gray-700">
+                              {editValue === "true" ? "Enabled" : "Disabled"}
+                            </span>
+                          </div>
+                        ) : config.type === "file" ? (
+                          <div className="space-y-2">
+                            <Input
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              className="w-full bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200 text-sm"
+                              placeholder="Logo URL or upload a file"
+                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                ref={(input) => {
+                                  if (input) {
+                                    input.style.display = "none";
+                                  }
+                                }}
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    handleFileUpload(file);
+                                  }
+                                }}
+                                id={`file-upload-${config.key}`}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={uploadingFile}
+                                className="w-full border-gray-300 hover:bg-gray-50"
+                                onClick={() => {
+                                  const fileInput = document.getElementById(
+                                    `file-upload-${config.key}`
+                                  ) as HTMLInputElement;
+                                  if (fileInput) {
+                                    fileInput.click();
+                                  }
+                                }}
+                              >
+                                {uploadingFile ? (
+                                  <RefreshCwIcon className="w-3 h-3 animate-spin mr-1" />
+                                ) : (
+                                  <UploadIcon className="w-3 h-3 mr-1" />
+                                )}
+                                {uploadingFile ? "Uploading..." : "Upload Logo"}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Input
+                            type={
+                              config.type === "password" ? "password" : "text"
+                            }
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            className="w-full bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200 text-sm"
+                            placeholder={`Enter ${config.key.toLowerCase()}`}
+                          />
+                        )}
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleSave}
+                            disabled={upsertMutation.isPending}
+                            size="sm"
+                            className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
+                          >
+                            {upsertMutation.isPending ? (
+                              <RefreshCwIcon className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <SaveIcon className="w-3 h-3" />
+                            )}
+                          </Button>
                           <Button
                             variant="outline"
-                            onClick={() =>
-                              handleEdit({
-                                key: config.key,
-                                value: currentValue,
-                              })
-                            }
+                            onClick={() => setEditingKey(null)}
                             size="sm"
                             className="border-gray-300 hover:bg-gray-50"
                           >
-                            <EditIcon className="w-4 h-4 mr-1" />
-                            Edit
+                            <XIcon className="w-3 h-3" />
                           </Button>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-800 font-mono break-all bg-gray-50 rounded px-2 py-1 border border-gray-200">
+                          {config.type === "boolean" ? (
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                checked={currentValue === "true"}
+                                disabled
+                              />
+                              <span>
+                                {currentValue === "true"
+                                  ? "Enabled"
+                                  : "Disabled"}
+                              </span>
+                            </div>
+                          ) : config.type === "file" && currentValue ? (
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={currentValue}
+                                alt="Company Logo"
+                                className="w-8 h-8 object-contain rounded"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                              <span className="text-xs text-gray-600 truncate">
+                                Logo uploaded
+                              </span>
+                            </div>
+                          ) : config.type === "password" && currentValue ? (
+                            "••••••••"
+                          ) : (
+                            currentValue || "Not configured"
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            handleEdit({
+                              key: config.key,
+                              value: currentValue,
+                            })
+                          }
+                          size="sm"
+                          className="w-full border-gray-300 hover:bg-gray-50"
+                        >
+                          <EditIcon className="w-3 h-3 mr-1" />
+                          Edit
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -462,17 +661,17 @@ export function ConfigurationPanel() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
-          <SettingsIcon className="w-6 h-6 text-white" />
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg">
+          <SettingsIcon className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
             Email Configuration
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-gray-600 text-sm">
             Configure email server settings for receiving and sending emails
           </p>
         </div>
@@ -496,6 +695,26 @@ export function ConfigurationPanel() {
         handleTestImapConnection,
         imapTestStatus,
         testImapMutation
+      )}
+
+      {/* Ticket Configuration */}
+      {renderConfigSection(
+        "Ticket Settings",
+        "Configure how tickets are created from incoming emails",
+        TICKET_CONFIGS,
+        () => {}, // No test function for ticket settings
+        "idle",
+        { isPending: false }
+      )}
+
+      {/* Company Configuration */}
+      {renderConfigSection(
+        "Company Settings",
+        "Configure company branding settings",
+        COMPANY_CONFIGS,
+        () => {}, // No test function for company settings
+        "idle",
+        { isPending: false }
       )}
     </div>
   );

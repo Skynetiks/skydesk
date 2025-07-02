@@ -3,6 +3,10 @@ import { appRouter } from "@/server/root";
 import { createTRPCFetchContext } from "@/server/trpc";
 import { db } from "@/server/db";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  generateTicketConfirmationEmail,
+  generateTicketRejectionEmail,
+} from "@/lib/email-templates";
 
 export async function POST(request: NextRequest) {
   try {
@@ -318,6 +322,55 @@ You can view the full ticket at: ${
 
       ticket = existingTicket;
     } else {
+      // Check if client-only tickets is enabled and if email is from a registered client
+      const clientOnlyTicketsConfig = await db.configuration.findUnique({
+        where: { key: "CLIENT_ONLY_TICKETS" },
+      });
+
+      if (clientOnlyTicketsConfig?.value === "true") {
+        const client = await db.client.findFirst({
+          where: {
+            emails: {
+              has: fromEmail.toLowerCase(),
+            },
+          },
+        });
+
+        if (!client) {
+          console.log(
+            `Skipping email from ${fromEmail}: Client-only tickets enabled but email is not from a registered client`
+          );
+
+          // Send rejection email
+          try {
+            const { html, text } = await generateTicketRejectionEmail(
+              subject || ""
+            );
+
+            await sendEmail({
+              to: fromEmail,
+              subject: `Ticket Request Rejected: ${subject || ""}`,
+              text,
+              html,
+            });
+
+            console.log(
+              `Rejection email sent to ${fromEmail} for non-registered client`
+            );
+          } catch (error) {
+            console.error("Failed to send rejection email:", error);
+          }
+
+          return NextResponse.json({
+            success: false,
+            message: "Email not from registered client",
+          });
+        }
+        console.log(
+          `Email from ${fromEmail} is from a registered client, proceeding with ticket creation`
+        );
+      }
+
       // Create new ticket
       try {
         ticket = await caller.ticket.create({
@@ -350,82 +403,19 @@ You can view the full ticket at: ${
             },
           });
 
+          const { html, text: emailText } =
+            await generateTicketConfirmationEmail(
+              ticket.id,
+              subject || "",
+              text,
+              ticket.priority
+            );
+
           await sendEmail({
             to: fromEmail,
             subject: `Ticket Received: ${subject || ""} [${ticket.id}]`,
-            text: `Thank you for contacting us. We have received your ticket and opened a case for you.
-
-Ticket Details:
-- Ticket ID: ${ticket.id}
-- Subject: ${subject}
-- Status: Open
-- Priority: Medium
-
-Your original message:
-${text}
-
-You can reply to this email thread to add more information to your ticket. Our support team will review your request and get back to you as soon as possible.
-
-If you need to provide additional information or have any questions, please reply to this email.
-
-Best regards,
-Support Team
-
----
-Ticket ID: ${ticket.id}
-This email thread is linked to your support ticket.`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background-color: #f8f9fa; padding: 20px; border-left: 4px solid #007bff;">
-                  <h2 style="color: #007bff; margin: 0 0 15px 0;">Ticket Received</h2>
-                  <p style="margin: 0 0 20px 0; color: #333;">Thank you for contacting us. We have received your ticket and opened a case for you.</p>
-                </div>
-                
-                <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e9ecef; margin: 20px 0;">
-                  <h3 style="color: #333; margin: 0 0 15px 0;">Ticket Details</h3>
-                  <table style="width: 100%; border-collapse: collapse;">
-                    <tr>
-                      <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: bold; color: #333;">Ticket ID:</td>
-                      <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; color: #666;">${ticket.id}</td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: bold; color: #333;">Subject:</td>
-                      <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; color: #666;">${subject}</td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: bold; color: #333;">Status:</td>
-                      <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; color: #28a745;">Open</td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 8px 0; font-weight: bold; color: #333;">Priority:</td>
-                      <td style="padding: 8px 0; color: #ffc107;">Medium</td>
-                    </tr>
-                  </table>
-                </div>
-                
-                <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
-                  <h4 style="margin: 0 0 10px 0; color: #856404;">Your Original Message:</h4>
-                  <div style="white-space: pre-wrap; background-color: white; padding: 15px; border-radius: 4px; color: #333;">${text}</div>
-                </div>
-                
-                <div style="background-color: #d1ecf1; padding: 15px; border-left: 4px solid #17a2b8; margin: 20px 0;">
-                  <p style="margin: 0; color: #0c5460;">
-                    <strong>Important:</strong> You can reply to this email thread to add more information to your ticket. 
-                    Our support team will review your request and get back to you as soon as possible.
-                  </p>
-                </div>
-                
-                <div style="text-align: center; margin: 30px 0;">
-                  <p style="color: #666; margin: 0;">Best regards,<br>Support Team</p>
-                </div>
-                
-                <hr style="border: none; border-top: 1px solid #e9ecef; margin: 30px 0;">
-                <div style="text-align: center; color: #999; font-size: 12px;">
-                  <p style="margin: 0;"><strong>Ticket ID:</strong> ${ticket.id}</p>
-                  <p style="margin: 5px 0 0 0;">This email thread is linked to your support ticket.</p>
-                </div>
-              </div>
-            `,
+            text: emailText,
+            html,
             headers: {
               "Message-ID": confirmationMessageId,
               ...(messageId && { "In-Reply-To": messageId }),
