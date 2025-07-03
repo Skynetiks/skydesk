@@ -20,9 +20,10 @@ model User {
     updatedAt DateTime @updatedAt
 
     // Relations
-    assignedTickets Ticket[]  @relation("AssignedTickets")
-    createdTickets  Ticket[]  @relation("CreatedTickets")
-    messages        Message[]
+    assignedTickets  Ticket[]   @relation("AssignedTickets")
+    createdTickets   Ticket[]   @relation("CreatedTickets")
+    messages         Message[]
+    createdCampaigns Campaign[] @relation("CreatedCampaigns")
 
     @@map("users")
 }
@@ -112,13 +113,73 @@ model Client {
     state       String?
     country     String?
     companyName String?
+    isActive    Boolean  @default(true) // Whether the client is active or inactive
     createdAt   DateTime @default(now())
     updatedAt   DateTime @updatedAt
 
     // Relations
-    tickets Ticket[]
+    tickets            Ticket[]
+    campaignRecipients CampaignRecipient[]
 
     @@map("clients")
+}
+
+model Campaign {
+    id              String         @id @default(cuid())
+    name            String
+    subject         String
+    body            String
+    status          CampaignStatus @default(DRAFT)
+    concurrency     Int            @default(5) // Number of emails to send simultaneously
+    delaySeconds    Int            @default(10) // Delay between batches in seconds
+    totalRecipients Int            @default(0)
+    sentCount       Int            @default(0)
+    failedCount     Int            @default(0)
+    createdAt       DateTime       @default(now())
+    updatedAt       DateTime       @updatedAt
+    lastExecuted    DateTime?
+    createdById     String
+    createdBy       User           @relation("CreatedCampaigns", fields: [createdById], references: [id])
+
+    // Relations
+    recipients CampaignRecipient[]
+    executions CampaignExecution[]
+
+    @@map("campaigns")
+}
+
+model CampaignRecipient {
+    id           String          @id @default(cuid())
+    email        String
+    name         String?
+    status       RecipientStatus @default(PENDING)
+    sentAt       DateTime?
+    failedAt     DateTime?
+    errorMessage String?
+    createdAt    DateTime        @default(now())
+
+    // Relations
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+    clientId   String?
+    client     Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+    @@map("campaign_recipients")
+}
+
+model CampaignExecution {
+    id            String          @id @default(cuid())
+    executionTime DateTime        @default(now())
+    emailsSent    Int             @default(0)
+    emailsFailed  Int             @default(0)
+    status        ExecutionStatus @default(COMPLETED)
+    errorMessage  String?
+
+    // Relations
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    @@map("campaign_executions")
 }
 
 enum UserRole {
@@ -138,4 +199,26 @@ enum Priority {
     MEDIUM
     HIGH
     URGENT
+}
+
+enum CampaignStatus {
+    DRAFT
+    ACTIVE
+    PAUSED
+    COMPLETED
+    CANCELLED
+}
+
+enum RecipientStatus {
+    PENDING
+    SENT
+    FAILED
+    BOUNCED
+}
+
+enum ExecutionStatus {
+    RUNNING
+    COMPLETED
+    FAILED
+    CANCELLED
 }

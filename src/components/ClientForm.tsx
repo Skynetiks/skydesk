@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import { XIcon, PlusIcon } from "lucide-react";
 import { trpc } from "@/app/_trpc/client";
@@ -19,6 +20,7 @@ interface ClientFormProps {
     state?: string | null;
     country?: string | null;
     companyName?: string | null;
+    isActive?: boolean;
   } | null;
   onClose: () => void;
   isAdmin: boolean;
@@ -34,6 +36,7 @@ export function ClientForm({ client, onClose }: ClientFormProps) {
     state: "",
     country: "",
     companyName: "",
+    isActive: true,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -64,6 +67,7 @@ export function ClientForm({ client, onClose }: ClientFormProps) {
         state: client.state || "",
         country: client.country || "",
         companyName: client.companyName || "",
+        isActive: client.isActive ?? true,
       });
     }
   }, [client]);
@@ -108,6 +112,7 @@ export function ClientForm({ client, onClose }: ClientFormProps) {
       state: formData.state.trim() || undefined,
       country: formData.country.trim() || undefined,
       companyName: formData.companyName.trim() || undefined,
+      isActive: formData.isActive,
     };
 
     try {
@@ -218,6 +223,25 @@ export function ClientForm({ client, onClose }: ClientFormProps) {
                   }
                   placeholder="Enter company name"
                 />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="isActive"
+                  checked={formData.isActive}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      isActive: checked as boolean,
+                    }))
+                  }
+                />
+                <label
+                  htmlFor="isActive"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  Client is active
+                </label>
               </div>
             </div>
 

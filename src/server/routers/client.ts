@@ -14,6 +14,7 @@ const clientInputSchema = z.object({
   state: z.string().optional().nullable(),
   country: z.string().optional().nullable(),
   companyName: z.string().optional().nullable(),
+  isActive: z.boolean().optional().default(true),
 });
 
 const updateClientSchema = clientInputSchema.partial().extend({
@@ -28,22 +29,34 @@ export const clientRouter = createTRPCRouter({
         limit: z.number().min(1).max(100).default(20),
         cursor: z.string().nullish(),
         search: z.string().optional(),
+        isActive: z.boolean().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      const { limit, cursor, search } = input;
+      const { limit, cursor, search, isActive } = input;
 
-      const where = search
-        ? {
-            OR: [
-              { name: { contains: search, mode: "insensitive" as const } },
-              {
-                companyName: { contains: search, mode: "insensitive" as const },
-              },
-              { emails: { hasSome: [search] } },
-            ],
-          }
-        : {};
+      const where: {
+        OR?: Array<{
+          name?: { contains: string; mode: "insensitive" };
+          companyName?: { contains: string; mode: "insensitive" };
+          emails?: { hasSome: string[] };
+        }>;
+        isActive?: boolean;
+      } = {};
+
+      if (search) {
+        where.OR = [
+          { name: { contains: search, mode: "insensitive" as const } },
+          {
+            companyName: { contains: search, mode: "insensitive" as const },
+          },
+          { emails: { hasSome: [search] } },
+        ];
+      }
+
+      if (isActive !== undefined) {
+        where.isActive = isActive;
+      }
 
       const items = await ctx.db.client.findMany({
         where,
@@ -112,6 +125,39 @@ export const clientRouter = createTRPCRouter({
 
     return clients;
   }),
+
+  // Get all clients for campaign selection (no pagination, optimized for campaigns)
+  getAllForCampaigns: protectedProcedure
+    .input(
+      z.object({
+        isActive: z.boolean().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const { isActive } = input;
+
+      const where: {
+        isActive?: boolean;
+      } = {};
+
+      if (isActive !== undefined) {
+        where.isActive = isActive;
+      }
+
+      const clients = await ctx.db.client.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          emails: true,
+          companyName: true,
+          isActive: true,
+        },
+        orderBy: { name: "asc" },
+      });
+
+      return clients;
+    }),
 
   // Create new client
   create: adminProcedure
@@ -267,6 +313,7 @@ export const clientRouter = createTRPCRouter({
               state?: string;
               country?: string;
               companyName?: string;
+              isActive?: boolean;
             } = {};
 
             headers.forEach((header, index) => {
@@ -305,6 +352,25 @@ export const clientRouter = createTRPCRouter({
                 clientData.country = value?.toString() || "";
               } else if (headerLower.includes("company")) {
                 clientData.companyName = value?.toString() || "";
+              } else if (
+                headerLower.includes("active") ||
+                headerLower.includes("isactive")
+              ) {
+                // Handle isActive field - can be boolean, string, or number
+                if (typeof value === "boolean") {
+                  clientData.isActive = value;
+                } else if (typeof value === "string") {
+                  const lowerValue = value.toLowerCase().trim();
+                  clientData.isActive =
+                    lowerValue === "true" ||
+                    lowerValue === "yes" ||
+                    lowerValue === "1" ||
+                    lowerValue === "active";
+                } else if (typeof value === "number") {
+                  clientData.isActive = value === 1;
+                } else {
+                  clientData.isActive = true; // Default to true if not specified
+                }
               }
             });
 
@@ -340,6 +406,7 @@ export const clientRouter = createTRPCRouter({
                 state: clientData.state || null,
                 country: clientData.country || null,
                 companyName: clientData.companyName || null,
+                isActive: clientData.isActive ?? true,
               },
             });
 

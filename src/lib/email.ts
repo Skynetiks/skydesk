@@ -30,6 +30,14 @@ async function getEmailConfig() {
     return acc;
   }, {} as Record<string, string>);
 
+  console.log("Email config retrieved from database:", {
+    host: configMap.EMAIL_HOST,
+    port: configMap.EMAIL_PORT,
+    user: configMap.EMAIL_USER,
+    hasPassword: !!configMap.EMAIL_PASS,
+    supportEmail: configMap.SUPPORT_EMAIL,
+  });
+
   return configMap;
 }
 
@@ -38,8 +46,20 @@ async function createTransporter() {
   const config = await getEmailConfig();
 
   if (!config.EMAIL_HOST || !config.EMAIL_USER || !config.EMAIL_PASS) {
+    console.error("Missing email configuration:", {
+      hasHost: !!config.EMAIL_HOST,
+      hasUser: !!config.EMAIL_USER,
+      hasPassword: !!config.EMAIL_PASS,
+    });
     throw new Error("Email configuration not found in database");
   }
+
+  console.log("Creating email transporter with config:", {
+    host: config.EMAIL_HOST,
+    port: parseInt(config.EMAIL_PORT || "587"),
+    user: config.EMAIL_USER,
+    secure: false,
+  });
 
   return nodemailer.createTransport({
     host: config.EMAIL_HOST,
@@ -53,6 +73,13 @@ async function createTransporter() {
 }
 
 export async function sendEmail(options: EmailOptions) {
+  console.log("sendEmail called with options:", {
+    to: options.to,
+    subject: options.subject,
+    hasHtml: !!options.html,
+    hasText: !!options.text,
+  });
+
   const transporter = await createTransporter();
   const config = await getEmailConfig();
 
@@ -65,9 +92,18 @@ export async function sendEmail(options: EmailOptions) {
     headers: options.headers || {},
   };
 
+  console.log("Mail options prepared:", {
+    from: mailOptions.from,
+    to: mailOptions.to,
+    subject: mailOptions.subject,
+    hasHtml: !!mailOptions.html,
+    hasText: !!mailOptions.text,
+  });
+
   try {
+    console.log("Attempting to send email...");
     const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent:", info.messageId);
+    console.log("Email sent successfully:", info.messageId);
     return info;
   } catch (error) {
     console.error("Error sending email:", error);

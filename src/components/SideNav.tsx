@@ -13,14 +13,21 @@ import {
   BarChart3Icon,
   ChevronRight,
   Building2Icon,
+  MailIcon,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 interface SideNavProps {
-  activeTab: "dashboard" | "tickets" | "clients" | "config" | "users";
+  activeTab:
+    | "dashboard"
+    | "tickets"
+    | "clients"
+    | "campaigns"
+    | "config"
+    | "users";
   onTabChange: (
-    tab: "dashboard" | "tickets" | "clients" | "config" | "users"
+    tab: "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
   ) => void;
   isAdmin: boolean;
   stats?: {
@@ -79,6 +86,15 @@ export function SideNav({
       color: "from-emerald-600 to-green-600",
       hoverColor: "hover:from-emerald-700 hover:to-green-700",
       route: "/clients",
+    },
+    {
+      id: "campaigns" as const,
+      label: "Campaigns",
+      icon: MailIcon,
+      description: "Email campaigns & automation",
+      color: "from-orange-600 to-red-600",
+      hoverColor: "hover:from-orange-700 hover:to-red-700",
+      route: "/campaigns",
     },
     ...(isAdmin
       ? [

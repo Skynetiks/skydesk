@@ -46,6 +46,9 @@ export function ClientList({ isAdmin }: ClientListProps) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "active" | "inactive"
+  >("all");
 
   // Check for view parameter in URL
   useEffect(() => {
@@ -69,6 +72,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
     state?: string | null;
     country?: string | null;
     companyName?: string | null;
+    isActive?: boolean;
   } | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [selectedClients, setSelectedClients] = useState<Set<string>>(
@@ -82,6 +86,11 @@ export function ClientList({ isAdmin }: ClientListProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [clientToDelete, setClientToDelete] = useState<string | null>(null);
+  const [isUpdatingActive, setIsUpdatingActive] = useState(false);
+  const [updateActiveProgress, setUpdateActiveProgress] = useState({
+    current: 0,
+    total: 0,
+  });
 
   // Debounce search input
   useEffect(() => {
@@ -104,6 +113,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
     {
       limit: 20,
       search: debouncedSearch || undefined,
+      isActive: statusFilter === "all" ? undefined : statusFilter === "active",
     },
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -114,6 +124,12 @@ export function ClientList({ isAdmin }: ClientListProps) {
   const allClients = data?.pages.flatMap((page) => page.items) ?? [];
 
   const deleteMutation = trpc.client.delete.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
+
+  const updateMutation = trpc.client.update.useMutation({
     onSuccess: () => {
       refetch();
     },
@@ -142,6 +158,54 @@ export function ClientList({ isAdmin }: ClientListProps) {
   const handleBulkDelete = async () => {
     if (selectedClients.size === 0) return;
     setShowBulkDeleteDialog(true);
+  };
+
+  const handleBulkToggleActive = async (isActive: boolean) => {
+    if (selectedClients.size === 0) return;
+
+    setIsUpdatingActive(true);
+    setUpdateActiveProgress({ current: 0, total: selectedClients.size });
+
+    const toastId = toast.loading(
+      `${isActive ? "Activating" : "Deactivating"} ${
+        selectedClients.size
+      } client${selectedClients.size > 1 ? "s" : ""}...`
+    );
+
+    try {
+      const clientIds = Array.from(selectedClients);
+
+      // Update clients one by one with progress tracking
+      for (let i = 0; i < clientIds.length; i++) {
+        const clientId = clientIds[i];
+        await updateMutation.mutateAsync({
+          id: clientId,
+          isActive,
+        });
+        setUpdateActiveProgress({ current: i + 1, total: clientIds.length });
+      }
+
+      setSelectedClients(new Set()); // Clear selection
+      toast.success(
+        `Successfully ${isActive ? "activated" : "deactivated"} ${
+          clientIds.length
+        } client${clientIds.length > 1 ? "s" : ""}`,
+        { id: toastId }
+      );
+    } catch (error) {
+      console.error("Failed to update clients:", error);
+      toast.error(
+        `Failed to ${
+          isActive ? "activate" : "deactivate"
+        } some clients. Please try again.`,
+        {
+          id: toastId,
+        }
+      );
+    } finally {
+      setIsUpdatingActive(false);
+      setUpdateActiveProgress({ current: 0, total: 0 });
+    }
   };
 
   const confirmBulkDelete = async () => {
@@ -216,6 +280,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
     state?: string | null;
     country?: string | null;
     companyName?: string | null;
+    isActive?: boolean;
   }) => {
     setEditingClient(client);
     setShowForm(true);
@@ -223,6 +288,34 @@ export function ClientList({ isAdmin }: ClientListProps) {
 
   const handleView = (id: string) => {
     setSelectedClient(id);
+  };
+
+  const handleToggleActive = async (client: {
+    id: string;
+    name: string;
+    emails: string[];
+    phone?: string[];
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    companyName?: string | null;
+    isActive?: boolean;
+  }) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: client.id,
+        isActive: !client.isActive,
+      });
+      toast.success(
+        `Client ${client.name} ${
+          client.isActive ? "deactivated" : "activated"
+        } successfully`
+      );
+    } catch (error) {
+      console.error("Failed to update client:", error);
+      toast.error("Failed to update client status. Please try again.");
+    }
   };
 
   const handleFormClose = () => {
@@ -292,14 +385,30 @@ export function ClientList({ isAdmin }: ClientListProps) {
 
       {/* Search and Bulk Actions */}
       <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <Input
-            placeholder="Search clients by name, company, or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex items-center gap-4 flex-1">
+          <div className="relative flex-1">
+            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder="Search clients by name, company, or email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Status:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as "all" | "active" | "inactive")
+              }
+              className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
         </div>
 
         {/* Bulk Actions */}
@@ -328,16 +437,58 @@ export function ClientList({ isAdmin }: ClientListProps) {
                   />
                 </div>
               </div>
+            ) : isUpdatingActive ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <Loader2Icon className="w-4 h-4 animate-spin" />
+                  <span>
+                    Updating {updateActiveProgress.current} of{" "}
+                    {updateActiveProgress.total}...
+                  </span>
+                </div>
+                <div className="w-32 bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${
+                        (updateActiveProgress.current /
+                          updateActiveProgress.total) *
+                        100
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
             ) : (
-              <Button
-                onClick={handleBulkDelete}
-                variant="destructive"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <Trash2Icon className="w-4 h-4" />
-                Delete Selected
-              </Button>
+              <>
+                <Button
+                  onClick={() => handleBulkToggleActive(true)}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  Activate All
+                </Button>
+                <Button
+                  onClick={() => handleBulkToggleActive(false)}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <div className="w-2 h-2 rounded-full bg-gray-400" />
+                  Deactivate All
+                </Button>
+                <Button
+                  onClick={handleBulkDelete}
+                  variant="destructive"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <Trash2Icon className="w-4 h-4" />
+                  Delete Selected
+                </Button>
+              </>
             )}
           </div>
         )}
@@ -368,6 +519,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
               <TableHead>Emails</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Location</TableHead>
+              <TableHead className="w-[100px]">Status</TableHead>
               <TableHead className="w-[120px]">Tickets</TableHead>
               <TableHead className="w-[100px]">Actions</TableHead>
             </TableRow>
@@ -376,7 +528,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 8 : 7}
+                  colSpan={isAdmin ? 9 : 8}
                   className="text-center py-8"
                 >
                   <div className="flex items-center justify-center gap-2">
@@ -388,7 +540,7 @@ export function ClientList({ isAdmin }: ClientListProps) {
             ) : allClients.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 8 : 7}
+                  colSpan={isAdmin ? 9 : 8}
                   className="text-center py-8"
                 >
                   <p className="text-gray-500">No clients found</p>
@@ -407,6 +559,8 @@ export function ClientList({ isAdmin }: ClientListProps) {
                     className={`hover:bg-gray-50 ${
                       isDeleting && selectedClients.has(client.id)
                         ? "opacity-50 bg-red-50"
+                        : !client.isActive
+                        ? "opacity-60 bg-gray-50"
                         : ""
                     }`}
                   >
@@ -490,6 +644,21 @@ export function ClientList({ isAdmin }: ClientListProps) {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            client.isActive ? "bg-green-500" : "bg-gray-400"
+                          }`}
+                        />
+                        <Badge
+                          variant={client.isActive ? "default" : "secondary"}
+                          className="text-xs"
+                        >
+                          {client.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">
                           {client._count?.tickets || 0} tickets
                         </Badge>
@@ -522,10 +691,34 @@ export function ClientList({ isAdmin }: ClientListProps) {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleEdit(client)}
-                              disabled={isDeleting}
+                              disabled={isDeleting || isUpdatingActive}
                               className="h-8 w-8 p-0"
                             >
                               <EditIcon className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleActive(client)}
+                              disabled={isDeleting || isUpdatingActive}
+                              className={`h-8 w-8 p-0 ${
+                                client.isActive
+                                  ? "text-green-600 hover:text-green-700"
+                                  : "text-gray-600 hover:text-gray-700"
+                              }`}
+                              title={
+                                client.isActive
+                                  ? "Deactivate client"
+                                  : "Activate client"
+                              }
+                            >
+                              <div
+                                className={`w-3 h-3 rounded-full ${
+                                  client.isActive
+                                    ? "bg-green-500"
+                                    : "bg-gray-400"
+                                }`}
+                              />
                             </Button>
                             <Button
                               variant="ghost"

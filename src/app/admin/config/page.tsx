@@ -18,7 +18,7 @@ export default function AdminImapConfigPage() {
       enabled: !!session,
     });
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "clients" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
   >("config");
 
   if (status === "loading" || isUserLoading) {

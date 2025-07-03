@@ -18,7 +18,7 @@ export default function AdminUsersPage() {
       enabled: !!session,
     });
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "clients" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
   >("users");
 
   if (status === "loading" || isUserLoading) {

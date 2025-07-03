@@ -11,7 +11,7 @@ import { Building2Icon } from "lucide-react";
 
 export default function ClientsPage() {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "clients" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
   >("clients");
 
   const { data: session, status: sessionStatus } = useSession();

@@ -16,6 +16,7 @@ import {
 import { trpc } from "@/app/_trpc/client";
 import { format } from "date-fns";
 import Link from "next/link";
+import { toast } from "sonner";
 
 interface ClientDetailProps {
   clientId: string;
@@ -30,6 +31,7 @@ interface ClientDetailProps {
     state?: string | null;
     country?: string | null;
     companyName?: string | null;
+    isActive?: boolean;
   }) => void;
   isAdmin: boolean;
 }
@@ -43,6 +45,41 @@ export function ClientDetail({
   const { data: client, isLoading } = trpc.client.getById.useQuery({
     id: clientId,
   });
+
+  const updateMutation = trpc.client.update.useMutation({
+    onSuccess: () => {
+      // Refetch the client data
+      window.location.reload();
+    },
+  });
+
+  const handleToggleActive = async (client: {
+    id: string;
+    name: string;
+    emails: string[];
+    phone?: string[];
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    companyName?: string | null;
+    isActive?: boolean;
+  }) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: client.id,
+        isActive: !client.isActive,
+      });
+      toast.success(
+        `Client ${client.name} ${
+          client.isActive ? "deactivated" : "activated"
+        } successfully`
+      );
+    } catch (error) {
+      console.error("Failed to update client:", error);
+      toast.error("Failed to update client status. Please try again.");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -96,20 +133,51 @@ export function ClientDetail({
             Back
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{client.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-gray-900">
+                {client.name}
+              </h1>
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-3 h-3 rounded-full ${
+                    client.isActive ? "bg-green-500" : "bg-gray-400"
+                  }`}
+                />
+                <Badge
+                  variant={client.isActive ? "default" : "secondary"}
+                  className="text-sm"
+                >
+                  {client.isActive ? "Active" : "Inactive"}
+                </Badge>
+              </div>
+            </div>
             {client.companyName && (
               <p className="text-gray-600">{client.companyName}</p>
             )}
           </div>
         </div>
         {isAdmin && (
-          <Button
-            onClick={() => onEdit(client)}
-            className="flex items-center gap-2"
-          >
-            <EditIcon className="w-4 h-4" />
-            Edit Client
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => onEdit(client)}
+              className="flex items-center gap-2"
+            >
+              <EditIcon className="w-4 h-4" />
+              Edit Client
+            </Button>
+            <Button
+              onClick={() => handleToggleActive(client)}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <div
+                className={`w-3 h-3 rounded-full ${
+                  client.isActive ? "bg-green-500" : "bg-gray-400"
+                }`}
+              />
+              {client.isActive ? "Deactivate" : "Activate"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -300,6 +368,15 @@ export function ClientDetail({
               <div>
                 <p className="text-xs text-gray-500">Total Tickets</p>
                 <p className="text-sm font-medium">{client.tickets.length}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Status</p>
+                <Badge
+                  variant={client.isActive ? "default" : "secondary"}
+                  className="text-xs"
+                >
+                  {client.isActive ? "Active" : "Inactive"}
+                </Badge>
               </div>
             </CardContent>
           </Card>

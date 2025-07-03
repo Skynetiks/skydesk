@@ -11,7 +11,7 @@ import { trpc } from "@/app/_trpc/client";
 
 export default function TicketsPage() {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "clients" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
   >("tickets");
   const { data: session, status: sessionStatus } = useSession();
   const { data: stats } = trpc.ticket.getStats.useQuery(undefined, {

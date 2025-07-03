@@ -20,7 +20,7 @@ import { useState } from "react";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "clients" | "config" | "users"
+    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
   >("dashboard");
   const { data: session, status: sessionStatus } = useSession();
   const { data: stats } = trpc.ticket.getStats.useQuery(undefined, {
