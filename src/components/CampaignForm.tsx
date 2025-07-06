@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Mail, AlertCircle } from "lucide-react";
+import { Mail, AlertCircle, Info } from "lucide-react";
 
 interface Client {
   id: string;
@@ -182,7 +182,25 @@ export function CampaignForm({
               />
             </div>
             <div>
-              <Label htmlFor="concurrency">Concurrency</Label>
+              <Label htmlFor="concurrency" className="flex items-center gap-2">
+                Concurrency
+                <div className="group relative">
+                  <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-10">
+                    <div className="font-medium mb-1">
+                      ⚠️ Email Server Limits
+                    </div>
+                    <div>Be careful with concurrency settings!</div>
+                    <div>• Gmail: ~500/day, ~20/hour</div>
+                    <div>• Outlook: ~300/day, ~10/hour</div>
+                    <div>• AWS SES: ~50,000/day (sandbox), ~14/sec</div>
+                    <div>• Custom SMTP: Check your provider&apos;s limits</div>
+                    <div className="mt-1 text-yellow-200">
+                      High concurrency may trigger rate limits
+                    </div>
+                  </div>
+                </div>
+              </Label>
               <Input
                 id="concurrency"
                 type="number"
