@@ -373,47 +373,25 @@ You can view the full ticket at: ${
 
       // Create new ticket
       try {
-        ticket = await caller.ticket.create({
-          subject,
-          fromEmail,
-          fromName: fromName || undefined,
-          content: text,
-          emailId,
-          messageId: messageId || undefined,
-          inReplyTo: (inReplyTo && inReplyTo.trim()) || undefined,
-          references: (references && references.trim()) || undefined,
-          attachments: attachments || [],
-        });
+        // Generate confirmation email content first
+        const confirmationMessageId = `ticket-confirmation-${Date.now()}-${Math.random()
+          .toString(36)
+          .substr(2, 9)}@${
+          process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
+        }`;
 
-        // Send confirmation email to the ticket creator
+        const { html, text: emailText } = await generateTicketConfirmationEmail(
+          `temp-${Date.now()}`, // Temporary ID for email generation
+          subject || "",
+          text,
+          "MEDIUM" // Default priority
+        );
+
+        // Send confirmation email first - if this fails, no ticket will be created
         try {
-          const confirmationMessageId = `ticket-confirmation-${ticket.id}@${
-            process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") ||
-            "company.com"
-          }`;
-
-          // Update ticket's messageIds array to include the confirmation message
-          await db.ticket.update({
-            where: { id: ticket.id },
-            data: {
-              lastMessageId: confirmationMessageId,
-              messageIds: {
-                push: confirmationMessageId,
-              },
-            },
-          });
-
-          const { html, text: emailText } =
-            await generateTicketConfirmationEmail(
-              ticket.id,
-              subject || "",
-              text,
-              ticket.priority
-            );
-
           await sendEmail({
             to: fromEmail,
-            subject: `Ticket Received: ${subject || ""} [${ticket.id}]`,
+            subject: `Ticket Received: ${subject || ""}`,
             text: emailText,
             html,
             headers: {
@@ -426,13 +404,50 @@ You can view the full ticket at: ${
             },
           });
 
-          console.log(
-            `Confirmation email sent to ${fromEmail} for ticket ${ticket.id}`
+          console.log(`Confirmation email sent to ${fromEmail} successfully`);
+        } catch (emailError) {
+          console.error("Failed to send confirmation email:", emailError);
+          return NextResponse.json(
+            {
+              error: "Email configuration error",
+              details:
+                emailError instanceof Error
+                  ? emailError.message
+                  : String(emailError),
+              message:
+                "Cannot create ticket due to email configuration issues. Please check SMTP settings.",
+            },
+            { status: 500 }
           );
-        } catch (error) {
-          console.error("Failed to send confirmation email:", error);
-          // Don't throw error, just log it - we don't want to fail ticket creation if email fails
         }
+
+        // Only create ticket if email was sent successfully
+        ticket = await caller.ticket.create({
+          subject,
+          fromEmail,
+          fromName: fromName || undefined,
+          content: text,
+          emailId,
+          messageId: messageId || undefined,
+          inReplyTo: (inReplyTo && inReplyTo.trim()) || undefined,
+          references: (references && references.trim()) || undefined,
+          attachments: attachments || [],
+        });
+
+        // Update ticket with the actual confirmation message ID
+        await db.ticket.update({
+          where: { id: ticket.id },
+          data: {
+            lastMessageId: confirmationMessageId,
+            messageIds: {
+              push: confirmationMessageId,
+            },
+          },
+        });
+
+        console.log(
+          `Ticket ${ticket.id} created successfully after email confirmation`
+        );
       } catch (err) {
         console.error("Ticket creation error:", err);
         console.error("Ticket creation input:", {

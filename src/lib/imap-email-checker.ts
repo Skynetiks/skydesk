@@ -372,7 +372,49 @@ async function processEmail(emailData: {
 
   console.log(`Creating ticket with clientId: ${clientId || "null"}`);
 
-  // Create ticket
+  // Generate confirmation email content first
+  const confirmationMessageId = `ticket-confirmation-${Date.now()}-${Math.random()
+    .toString(36)
+    .substr(2, 9)}@${
+    process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
+  }`;
+
+  const { html, text: emailText } = await generateTicketConfirmationEmail(
+    `temp-${Date.now()}`, // Temporary ID for email generation
+    subject,
+    text,
+    "MEDIUM" // Default priority
+  );
+
+  // Send confirmation email first - if this fails, no ticket will be created
+  try {
+    const { sendEmail } = await import("@/lib/email");
+    await sendEmail({
+      to: email,
+      subject: `Ticket Received: ${subject}`,
+      text: emailText,
+      html,
+      headers: {
+        "Message-ID": confirmationMessageId,
+        ...(messageId
+          ? {
+              "In-Reply-To": messageId,
+              References:
+                references && messageId
+                  ? `${references} ${messageId}`.trim()
+                  : messageId,
+            }
+          : {}),
+      },
+    });
+
+    console.log(`Confirmation email sent to ${email} successfully`);
+  } catch (emailError) {
+    console.error("Failed to send confirmation email:", emailError);
+    throw emailError;
+  }
+
+  // Create ticket only if email was sent successfully
   const ticket = await db.ticket.create({
     data: {
       subject,
@@ -395,60 +437,20 @@ async function processEmail(emailData: {
     },
   });
 
-  console.log(`Created new ticket ${ticket.id} for email from ${email}`);
-
-  // Send confirmation email asynchronously (don't wait for it)
-  process.nextTick(async () => {
-    try {
-      const { sendEmail } = await import("@/lib/email");
-      const confirmationMessageId = `ticket-confirmation-${ticket.id}@${
-        process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
-      }`;
-
-      // Update ticket's messageIds array to include the confirmation message
-      await db.ticket.update({
-        where: { id: ticket.id },
-        data: {
-          lastMessageId: confirmationMessageId,
-          messageIds: {
-            push: confirmationMessageId,
-          },
-        },
-      });
-
-      const { html, text: emailText } = await generateTicketConfirmationEmail(
-        ticket.id,
-        subject,
-        text,
-        ticket.priority
-      );
-
-      await sendEmail({
-        to: email,
-        subject: `Ticket Received: ${subject} [${ticket.id}]`,
-        text: emailText,
-        html,
-        headers: {
-          "Message-ID": confirmationMessageId,
-          ...(messageId
-            ? {
-                "In-Reply-To": messageId,
-                References:
-                  references && messageId
-                    ? `${references} ${messageId}`.trim()
-                    : messageId,
-              }
-            : {}),
-        },
-      });
-
-      console.log(
-        `Confirmation email sent to ${email} for ticket ${ticket.id}`
-      );
-    } catch (error) {
-      console.error("Failed to send confirmation email:", error);
-    }
+  // Update ticket with the actual confirmation message ID
+  await db.ticket.update({
+    where: { id: ticket.id },
+    data: {
+      lastMessageId: confirmationMessageId,
+      messageIds: {
+        push: confirmationMessageId,
+      },
+    },
   });
+
+  console.log(
+    `Ticket ${ticket.id} created successfully after email confirmation`
+  );
 }
 
 // Main function to check for new emails

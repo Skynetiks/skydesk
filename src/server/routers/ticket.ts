@@ -418,6 +418,53 @@ export const ticketRouter = createTRPCRouter({
 
       console.log(`Creating ticket with clientId: ${clientId || "null"}`);
 
+      // Generate confirmation email content first
+      const confirmationMessageId = `ticket-confirmation-${Date.now()}-${Math.random()
+        .toString(36)
+        .substr(2, 9)}@${
+        process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
+      }`;
+
+      const { html, text } = await generateTicketConfirmationEmail(
+        `temp-${Date.now()}`, // Temporary ID for email generation
+        input.subject,
+        input.content,
+        "MEDIUM" // Default priority
+      );
+
+      // Send confirmation email first - if this fails, no ticket will be created
+      try {
+        await sendEmail({
+          to: input.fromEmail,
+          subject: `Ticket Received: ${input.subject}`,
+          text,
+          html,
+          headers: {
+            "Message-ID": confirmationMessageId,
+            ...(input.messageId && { "In-Reply-To": input.messageId }),
+            ...(input.messageId &&
+              input.references && {
+                References: `${input.messageId} ${input.references}`.trim(),
+              }),
+            ...(input.references &&
+              !input.messageId && { References: input.references }),
+          },
+        });
+
+        console.log(
+          `Confirmation email sent to ${input.fromEmail} successfully`
+        );
+      } catch (emailError) {
+        console.error("Failed to send confirmation email:", emailError);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            "Cannot create ticket due to email configuration issues. Please check SMTP settings.",
+          cause: emailError,
+        });
+      }
+
+      // Create the ticket only if email was sent successfully
       const ticket = await ctx.db.ticket.create({
         data: {
           subject: input.subject,
@@ -454,43 +501,20 @@ export const ticketRouter = createTRPCRouter({
         },
       });
 
-      // Send confirmation email to the ticket creator
-      try {
-        const confirmationMessageId = `ticket-confirmation-${ticket.id}@${
-          process.env.NEXTAUTH_URL?.replace(/^https?:\/\//, "") || "company.com"
-        }`;
-
-        const { html, text } = await generateTicketConfirmationEmail(
-          ticket.id,
-          input.subject,
-          input.content,
-          ticket.priority
-        );
-
-        await sendEmail({
-          to: input.fromEmail,
-          subject: `Ticket Received: ${input.subject} [${ticket.id}]`,
-          text,
-          html,
-          headers: {
-            "Message-ID": confirmationMessageId,
-            ...(input.messageId && { "In-Reply-To": input.messageId }),
-            ...(input.messageId &&
-              input.references && {
-                References: `${input.messageId} ${input.references}`.trim(),
-              }),
-            ...(input.references &&
-              !input.messageId && { References: input.references }),
+      // Update ticket with the actual confirmation message ID
+      await ctx.db.ticket.update({
+        where: { id: ticket.id },
+        data: {
+          lastMessageId: confirmationMessageId,
+          messageIds: {
+            push: confirmationMessageId,
           },
-        });
+        },
+      });
 
-        console.log(
-          `Confirmation email sent to ${input.fromEmail} for ticket ${ticket.id}`
-        );
-      } catch (error) {
-        console.error("Failed to send confirmation email:", error);
-        // Don't throw error, just log it - we don't want to fail ticket creation if email fails
-      }
+      console.log(
+        `Ticket ${ticket.id} created successfully after email confirmation`
+      );
 
       return ticket;
     }),
