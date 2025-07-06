@@ -3,7 +3,7 @@ import { db } from "@/server/db";
 import { generateEmailTemplate } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/email";
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     // Verify the request is from a legitimate cron service
     const authHeader = request.headers.get("authorization");

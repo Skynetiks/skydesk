@@ -1,7 +1,7 @@
 import { checkForNewEmails } from "@/lib/imap-email-checker";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     // Verify the request is from a legitimate cron service
     const authHeader = request.headers.get("authorization");
