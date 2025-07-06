@@ -37,7 +37,7 @@ interface ConfigItem {
   value: string;
   description: string;
   required: boolean;
-  type: "text" | "password" | "number" | "boolean" | "file";
+  type: "text" | "password" | "number" | "boolean" | "file" | "select";
 }
 
 const IMAP_CONFIGS: ConfigItem[] = [
@@ -87,6 +87,13 @@ const IMAP_CONFIGS: ConfigItem[] = [
 
 const SMTP_CONFIGS: ConfigItem[] = [
   {
+    key: "EMAIL_PROVIDER",
+    value: "smtp",
+    description: "Choose between SMTP or AWS SES for sending emails",
+    required: true,
+    type: "select",
+  },
+  {
     key: "EMAIL_HOST",
     value: "",
     description: "SMTP server hostname (e.g., smtp.gmail.com)",
@@ -120,6 +127,45 @@ const SMTP_CONFIGS: ConfigItem[] = [
     description:
       "From email address for sending notifications (falls back to EMAIL_USER if not set)",
     required: false,
+    type: "text",
+  },
+];
+
+const AWS_CONFIGS: ConfigItem[] = [
+  {
+    key: "EMAIL_PROVIDER",
+    value: "aws",
+    description: "Choose between SMTP or AWS SES for sending emails",
+    required: true,
+    type: "select",
+  },
+  {
+    key: "AWS_REGION",
+    value: "",
+    description: "AWS region (e.g., us-east-1, eu-west-1)",
+    required: true,
+    type: "text",
+  },
+  {
+    key: "AWS_SES_SMTP_USERNAME",
+    value: "",
+    description: "AWS SES SMTP Username (from AWS Console)",
+    required: true,
+    type: "text",
+  },
+  {
+    key: "AWS_SES_SMTP_PASSWORD",
+    value: "",
+    description: "AWS SES SMTP Password (from AWS Console)",
+    required: true,
+    type: "password",
+  },
+  {
+    key: "AWS_SES_SENDER_EMAIL",
+    value: "",
+    description:
+      "From email address for sending notifications (must be verified in SES)",
+    required: true,
     type: "text",
   },
 ];
@@ -465,200 +511,238 @@ export function ConfigurationPanel() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {configs.map((config) => {
-              const currentValue = getConfigValue(config.key);
-              const category = getConfigCategory(config.key);
-              const categoryColor = getCategoryColor(category);
-              const isEditing = editingKey === config.key;
+            {configs
+              .filter((config) => {
+                // Show all fields if no provider is selected
+                const provider = getConfigValue("EMAIL_PROVIDER");
+                if (!provider || provider === "smtp") return true;
 
-              return (
-                <div
-                  key={config.key}
-                  className="flex flex-col p-3 bg-white/70 border-white/30 rounded-lg"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="p-1.5 bg-gray-100 rounded-md">
-                      {getConfigIcon(config.key)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-gray-900 text-sm font-mono">
-                          {config.key}
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className={`text-xs ${categoryColor}`}
-                        >
-                          {category}
-                        </Badge>
-                        {config.required && (
-                          <Badge variant="destructive" className="text-xs">
-                            Required
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-600">
-                        {config.description}
-                      </div>
-                    </div>
-                  </div>
+                // For AWS provider, hide SMTP-specific fields and show AWS fields
+                if (provider === "aws") {
+                  if (config.key === "EMAIL_PROVIDER") return true; // Always show provider dropdown
+                  if (config.key.startsWith("AWS_")) return true; // Show AWS fields
+                  if (
+                    config.key.startsWith("EMAIL_") &&
+                    config.key !== "EMAIL_PROVIDER"
+                  )
+                    return false; // Hide SMTP fields
+                }
 
-                  <div className="flex-1">
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        {config.type === "boolean" ? (
-                          <div className="flex items-center gap-2">
-                            <Checkbox
-                              checked={editValue === "true"}
-                              onCheckedChange={(checked) =>
-                                setEditValue(checked ? "true" : "false")
-                              }
-                            />
-                            <span className="text-sm text-gray-700">
-                              {editValue === "true" ? "Enabled" : "Disabled"}
-                            </span>
-                          </div>
-                        ) : config.type === "file" ? (
-                          <div className="space-y-2">
-                            <Input
-                              type="text"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              className="w-full bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200 text-sm"
-                              placeholder="Logo URL or upload a file"
-                            />
-                            <div className="flex items-center gap-2">
-                              <input
-                                ref={(input) => {
-                                  if (input) {
-                                    input.style.display = "none";
-                                  }
-                                }}
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    handleFileUpload(file);
-                                  }
-                                }}
-                                id={`file-upload-${config.key}`}
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={uploadingFile}
-                                className="w-full border-gray-300 hover:bg-gray-50"
-                                onClick={() => {
-                                  const fileInput = document.getElementById(
-                                    `file-upload-${config.key}`
-                                  ) as HTMLInputElement;
-                                  if (fileInput) {
-                                    fileInput.click();
-                                  }
-                                }}
-                              >
-                                {uploadingFile ? (
-                                  <RefreshCwIcon className="w-3 h-3 animate-spin mr-1" />
-                                ) : (
-                                  <UploadIcon className="w-3 h-3 mr-1" />
-                                )}
-                                {uploadingFile ? "Uploading..." : "Upload Logo"}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <Input
-                            type={
-                              config.type === "password" ? "password" : "text"
-                            }
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            className="w-full bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200 text-sm"
-                            placeholder={`Enter ${config.key.toLowerCase()}`}
-                          />
-                        )}
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={handleSave}
-                            disabled={upsertMutation.isPending}
-                            size="sm"
-                            className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
-                          >
-                            {upsertMutation.isPending ? (
-                              <RefreshCwIcon className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <SaveIcon className="w-3 h-3" />
-                            )}
-                          </Button>
-                          <Button
+                return true;
+              })
+              .map((config) => {
+                const currentValue = getConfigValue(config.key);
+                const category = getConfigCategory(config.key);
+                const categoryColor = getCategoryColor(category);
+                const isEditing = editingKey === config.key;
+
+                return (
+                  <div
+                    key={config.key}
+                    className="flex flex-col p-3 bg-white/70 border-white/30 rounded-lg"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="p-1.5 bg-gray-100 rounded-md">
+                        {getConfigIcon(config.key)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-gray-900 text-sm font-mono">
+                            {config.key}
+                          </span>
+                          <Badge
                             variant="outline"
-                            onClick={() => setEditingKey(null)}
-                            size="sm"
-                            className="border-gray-300 hover:bg-gray-50"
+                            className={`text-xs ${categoryColor}`}
                           >
-                            <XIcon className="w-3 h-3" />
-                          </Button>
+                            {category}
+                          </Badge>
+                          {config.required && (
+                            <Badge variant="destructive" className="text-xs">
+                              Required
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {config.description}
                         </div>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="text-xs text-gray-800 font-mono break-all bg-gray-50 rounded px-2 py-1 border border-gray-200">
+                    </div>
+
+                    <div className="flex-1">
+                      {isEditing ? (
+                        <div className="space-y-2">
                           {config.type === "boolean" ? (
                             <div className="flex items-center gap-2">
                               <Checkbox
-                                checked={currentValue === "true"}
-                                disabled
+                                checked={editValue === "true"}
+                                onCheckedChange={(checked) =>
+                                  setEditValue(checked ? "true" : "false")
+                                }
                               />
-                              <span>
-                                {currentValue === "true"
-                                  ? "Enabled"
-                                  : "Disabled"}
+                              <span className="text-sm text-gray-700">
+                                {editValue === "true" ? "Enabled" : "Disabled"}
                               </span>
                             </div>
-                          ) : config.type === "file" && currentValue ? (
+                          ) : config.type === "select" ? (
                             <div className="flex items-center gap-2">
-                              <Image
-                                height={32}
-                                width={32}
-                                src={currentValue}
-                                alt="Company Logo"
-                                className="w-8 h-8 object-contain rounded"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = "none";
-                                }}
-                              />
-                              <span className="text-xs text-gray-600 truncate">
-                                Logo uploaded
-                              </span>
+                              <select
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="w-full bg-white/70 border border-gray-300 rounded px-3 py-2 text-sm focus:border-blue-300 focus:ring-blue-200"
+                              >
+                                <option value="smtp">SMTP</option>
+                                <option value="aws">AWS SES</option>
+                              </select>
                             </div>
-                          ) : config.type === "password" && currentValue ? (
-                            "••••••••"
+                          ) : config.type === "file" ? (
+                            <div className="space-y-2">
+                              <Input
+                                type="text"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="w-full bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200 text-sm"
+                                placeholder="Logo URL or upload a file"
+                              />
+                              <div className="flex items-center gap-2">
+                                <input
+                                  ref={(input) => {
+                                    if (input) {
+                                      input.style.display = "none";
+                                    }
+                                  }}
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      handleFileUpload(file);
+                                    }
+                                  }}
+                                  id={`file-upload-${config.key}`}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={uploadingFile}
+                                  className="w-full border-gray-300 hover:bg-gray-50"
+                                  onClick={() => {
+                                    const fileInput = document.getElementById(
+                                      `file-upload-${config.key}`
+                                    ) as HTMLInputElement;
+                                    if (fileInput) {
+                                      fileInput.click();
+                                    }
+                                  }}
+                                >
+                                  {uploadingFile ? (
+                                    <RefreshCwIcon className="w-3 h-3 animate-spin mr-1" />
+                                  ) : (
+                                    <UploadIcon className="w-3 h-3 mr-1" />
+                                  )}
+                                  {uploadingFile
+                                    ? "Uploading..."
+                                    : "Upload Logo"}
+                                </Button>
+                              </div>
+                            </div>
                           ) : (
-                            currentValue || "Not configured"
+                            <Input
+                              type={
+                                config.type === "password" ? "password" : "text"
+                              }
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              className="w-full bg-white/70 border-white/30 focus:border-blue-300 focus:ring-blue-200 text-sm"
+                              placeholder={`Enter ${config.key.toLowerCase()}`}
+                            />
                           )}
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={handleSave}
+                              disabled={upsertMutation.isPending}
+                              size="sm"
+                              className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
+                            >
+                              {upsertMutation.isPending ? (
+                                <RefreshCwIcon className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <SaveIcon className="w-3 h-3" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setEditingKey(null)}
+                              size="sm"
+                              className="border-gray-300 hover:bg-gray-50"
+                            >
+                              <XIcon className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          onClick={() =>
-                            handleEdit({
-                              key: config.key,
-                              value: currentValue,
-                            })
-                          }
-                          size="sm"
-                          className="w-full border-gray-300 hover:bg-gray-50"
-                        >
-                          <EditIcon className="w-3 h-3 mr-1" />
-                          Edit
-                        </Button>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="text-xs text-gray-800 font-mono break-all bg-gray-50 rounded px-2 py-1 border border-gray-200">
+                            {config.type === "boolean" ? (
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={currentValue === "true"}
+                                  disabled
+                                />
+                                <span>
+                                  {currentValue === "true"
+                                    ? "Enabled"
+                                    : "Disabled"}
+                                </span>
+                              </div>
+                            ) : config.type === "select" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="capitalize font-semibold">
+                                  {currentValue === "aws" ? "AWS SES" : "SMTP"}
+                                </span>
+                              </div>
+                            ) : config.type === "file" && currentValue ? (
+                              <div className="flex items-center gap-2">
+                                <Image
+                                  height={32}
+                                  width={32}
+                                  src={currentValue}
+                                  alt="Company Logo"
+                                  className="w-8 h-8 object-contain rounded"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                                <span className="text-xs text-gray-600 truncate">
+                                  Logo uploaded
+                                </span>
+                              </div>
+                            ) : config.type === "password" && currentValue ? (
+                              "••••••••"
+                            ) : (
+                              currentValue || "Not configured"
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              handleEdit({
+                                key: config.key,
+                                value: currentValue,
+                              })
+                            }
+                            size="sm"
+                            className="w-full border-gray-300 hover:bg-gray-50"
+                          >
+                            <EditIcon className="w-3 h-3 mr-1" />
+                            Edit
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         )}
       </CardContent>
@@ -682,15 +766,15 @@ export function ConfigurationPanel() {
         </div>
       </div>
 
-      {/* SMTP Configuration */}
+      {/* Email Configuration - Unified section with provider dropdown */}
       {renderConfigSection(
-        "SMTP Server Settings (Outgoing)",
-        "Configure your SMTP server for sending notification emails",
-        SMTP_CONFIGS,
+        "Email Server Settings (Outgoing)",
+        "Configure your email server for sending notification emails",
+        getConfigValue("EMAIL_PROVIDER") === "aws" ? AWS_CONFIGS : SMTP_CONFIGS,
         handleTestSmtpConnection,
         smtpTestStatus,
         testSmtpMutation,
-        true // Show test button for SMTP
+        true // Show test button
       )}
 
       {/* IMAP Configuration */}
