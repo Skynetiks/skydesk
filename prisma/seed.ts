@@ -68,9 +68,10 @@ async function main() {
       description: "Password or app password for SMTP authentication",
     },
     {
-      key: "SUPPORT_EMAIL",
+      key: "SENDER_EMAIL",
       value: "support@company.com",
-      description: "From email address for sending notifications",
+      description:
+        "From email address for sending notifications (falls back to EMAIL_USER if not set)",
     },
     // IMAP Configuration (for receiving emails - optional)
     {

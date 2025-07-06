@@ -19,7 +19,7 @@ async function getEmailConfig() {
           "EMAIL_PORT",
           "EMAIL_USER",
           "EMAIL_PASS",
-          "SUPPORT_EMAIL",
+          "SENDER_EMAIL",
         ],
       },
     },
@@ -35,7 +35,7 @@ async function getEmailConfig() {
     port: configMap.EMAIL_PORT,
     user: configMap.EMAIL_USER,
     hasPassword: !!configMap.EMAIL_PASS,
-    supportEmail: configMap.SUPPORT_EMAIL,
+    senderEmail: configMap.SENDER_EMAIL,
   });
 
   return configMap;
@@ -84,7 +84,7 @@ export async function sendEmail(options: EmailOptions) {
   const config = await getEmailConfig();
 
   const mailOptions = {
-    from: config.SUPPORT_EMAIL || config.EMAIL_USER,
+    from: config.SENDER_EMAIL || config.EMAIL_USER,
     to: options.to,
     subject: options.subject,
     text: options.text,

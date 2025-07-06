@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
       const emailConfig = await db.configuration.findMany({
         where: {
           key: {
-            in: ["EMAIL_HOST", "EMAIL_USER", "EMAIL_PASS", "SUPPORT_EMAIL"],
+            in: ["EMAIL_HOST", "EMAIL_USER", "EMAIL_PASS", "SENDER_EMAIL"],
           },
         },
       });

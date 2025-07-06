@@ -115,10 +115,11 @@ const SMTP_CONFIGS: ConfigItem[] = [
     type: "password",
   },
   {
-    key: "SUPPORT_EMAIL",
+    key: "SENDER_EMAIL",
     value: "",
-    description: "From email address for sending notifications",
-    required: true,
+    description:
+      "From email address for sending notifications (falls back to EMAIL_USER if not set)",
+    required: false,
     type: "text",
   },
 ];
@@ -355,7 +356,7 @@ export function ConfigurationPanel() {
     if (key.includes("USER") || key.includes("PASS"))
       return <MailIcon className="w-4 h-4" />;
     if (key.includes("SECURE")) return <ShieldIcon className="w-4 h-4" />;
-    if (key.includes("SUPPORT_EMAIL")) return <SendIcon className="w-4 h-4" />;
+    if (key.includes("SENDER_EMAIL")) return <SendIcon className="w-4 h-4" />;
     return <SettingsIcon className="w-4 h-4" />;
   };
 
@@ -364,7 +365,7 @@ export function ConfigurationPanel() {
     if (key.includes("USER") || key.includes("PASS")) return "Authentication";
     if (key.includes("SECURE")) return "Security";
     if (key.includes("LIMIT")) return "Processing";
-    if (key.includes("SUPPORT_EMAIL")) return "Notifications";
+    if (key.includes("SENDER_EMAIL")) return "Notifications";
     if (key.includes("CLIENT_ONLY_TICKETS")) return "Ticket";
     return "General";
   };
