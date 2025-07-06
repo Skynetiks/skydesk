@@ -26,20 +26,20 @@ export const authOptions: NextAuthOptions = {
           .safeParse(credentials);
 
         if (!parsedCredentials.success) {
-          return null;
+          throw new Error("Invalid email or password format");
         }
 
         const { email, password } = parsedCredentials.data;
         const user = await db.user.findUnique({ where: { email } });
 
         if (!user) {
-          return null;
+          throw new Error("Invalid email or password");
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
 
         if (!isPasswordValid) {
-          return null;
+          throw new Error("Invalid email or password");
         }
 
         return {

@@ -36,10 +36,11 @@ export default function SignInPage() {
         redirect: false,
       });
 
+      console.log("Sign in result:", result);
+
       if (result?.error) {
-        setError(
-          "Invalid email or password. Please check your credentials and try again."
-        );
+        // Use the specific error message from NextAuth
+        setError(result.error);
       } else if (result?.ok) {
         router.push("/");
         router.refresh();
@@ -136,9 +137,11 @@ export default function SignInPage() {
 
               {/* Error Message */}
               {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-lg animate-in fade-in duration-200">
                   <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                  <span className="text-sm text-red-700">{error}</span>
+                  <span className="text-sm font-medium text-red-700">
+                    {error}
+                  </span>
                 </div>
               )}
 
