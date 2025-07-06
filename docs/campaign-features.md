@@ -36,15 +36,23 @@ The campaign system provides:
 
 ### 2. Email Execution
 
+#### Single Campaign Execution Limit
+- **One Campaign at a Time**: Only one campaign can be executed simultaneously
+- **Execution Prevention**: System prevents starting new campaigns when another is running
+- **Visual Indicators**: Clear UI indicators show which campaign is currently running
+- **Error Handling**: Graceful error messages when attempting to start multiple campaigns
+
 #### Manual Execution
 - Execute campaigns immediately from the campaign detail page
 - Control the number of emails sent in each execution
 - Real-time feedback on execution status
+- Automatic prevention of concurrent executions
 
 #### Automated Execution
 - Cron job automatically executes campaigns based on their schedules
 - Configurable execution limits to prevent overwhelming email servers
 - Error handling and retry logic
+- Respects single campaign execution limit
 
 #### Email Template Integration
 - Uses the same email template system as ticket notifications
@@ -170,6 +178,10 @@ model CampaignExecution {
 
 ### Analytics
 - `GET /api/trpc/campaign.getStats` - Get campaign statistics
+
+### Execution Status
+- `GET /api/trpc/campaign.getRunningCampaign` - Check if any campaign is currently running
+- `GET /api/trpc/campaign.isCampaignRunning` - Check if a specific campaign is running
 
 ### Cron Jobs
 - `POST /api/cron/execute-campaigns` - Automated campaign execution

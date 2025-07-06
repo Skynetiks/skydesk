@@ -19,7 +19,6 @@ import {
   AlertCircle,
   BarChart3,
   History,
-  Send,
   Trash2,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
@@ -72,6 +71,7 @@ interface CampaignStats {
   sent: number;
   failed: number;
   pending: number;
+  queued: number;
   bounced: number;
   successRate: number;
   recentExecutions: Array<{
@@ -95,6 +95,14 @@ interface CampaignDetailProps {
   isUpdatingStatus?: boolean;
   onDelete?: () => void;
   isDeleting?: boolean;
+  runningCampaign?: {
+    id: string;
+    campaign: {
+      id: string;
+      name: string;
+      status: string;
+    };
+  } | null;
 }
 
 const statusColors = {
@@ -115,6 +123,7 @@ const statusIcons = {
 
 const recipientStatusColors = {
   PENDING: "bg-gray-100 text-gray-800",
+  QUEUED: "bg-blue-100 text-blue-800",
   SENT: "bg-green-100 text-green-800",
   FAILED: "bg-red-100 text-red-800",
   BOUNCED: "bg-orange-100 text-orange-800",
@@ -123,13 +132,13 @@ const recipientStatusColors = {
 export function CampaignDetail({
   campaign,
   stats,
-  onExecute,
   isExecuting,
   executionError,
   onUpdateStatus,
   isUpdatingStatus,
   onDelete,
   isDeleting,
+  runningCampaign,
 }: CampaignDetailProps) {
   const router = useRouter();
 
@@ -138,10 +147,6 @@ export function CampaignDetail({
   >("overview");
 
   const StatusIcon = statusIcons[campaign.status];
-
-  const handleExecute = () => {
-    onExecute();
-  };
 
   const handleBack = () => {
     router.push("/campaigns");
@@ -166,6 +171,36 @@ export function CampaignDetail({
 
   const handleEdit = () => {
     router.push(`/campaigns/${campaign.id}/edit`);
+  };
+
+  // Check if this campaign or another campaign is running
+  const isAnotherCampaignRunning = !!(
+    runningCampaign && runningCampaign.campaign.id !== campaign.id
+  );
+  const isThisCampaignRunning = !!(
+    runningCampaign && runningCampaign.campaign.id === campaign.id
+  );
+  const isExecuteDisabled =
+    isUpdatingStatus ||
+    isExecuting ||
+    isAnotherCampaignRunning ||
+    isThisCampaignRunning;
+
+  // Get the reason why execute is disabled
+  const getExecuteDisabledReason = () => {
+    if (isAnotherCampaignRunning) {
+      return `Campaign "${runningCampaign.campaign.name}" is currently running`;
+    }
+    if (isThisCampaignRunning) {
+      return "This campaign is already running";
+    }
+    if (isUpdatingStatus) {
+      return "Updating campaign status...";
+    }
+    if (isExecuting) {
+      return "Executing campaign...";
+    }
+    return "";
   };
 
   return (
@@ -201,6 +236,16 @@ export function CampaignDetail({
         </Alert>
       )}
 
+      {isAnotherCampaignRunning && (
+        <Alert className="border-yellow-200 bg-yellow-50">
+          <AlertCircle className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800">
+            Campaign &quot;{runningCampaign.campaign.name}&quot; is currently
+            running. Only one campaign can be executed at a time.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Quick Actions */}
       <Card>
         <CardContent className="p-4">
@@ -208,7 +253,9 @@ export function CampaignDetail({
             <div className="flex items-center gap-4">
               <div className="text-sm text-gray-600">
                 {campaign.status === "ACTIVE" &&
-                  `${stats?.pending || 0} pending recipients`}
+                  `${stats?.pending || 0} pending, ${
+                    stats?.queued || 0
+                  } queued recipients`}
                 {campaign.status === "DRAFT" &&
                   "Campaign is ready to start and send"}
                 {campaign.status === "PAUSED" && "Campaign is paused"}
@@ -233,14 +280,19 @@ export function CampaignDetail({
                   </Button>
                   <Button
                     onClick={handleStartAndSendCampaign}
-                    disabled={isUpdatingStatus || isExecuting}
+                    disabled={isExecuteDisabled}
                     className="bg-green-600 hover:bg-green-700"
+                    title={getExecuteDisabledReason()}
                   >
                     <Play className="w-4 h-4 mr-2" />
                     {isUpdatingStatus
                       ? "Starting..."
                       : isExecuting
                       ? "Sending..."
+                      : isAnotherCampaignRunning
+                      ? "Another Campaign Running"
+                      : isThisCampaignRunning
+                      ? "Already Running"
                       : "Start & Send"}
                   </Button>
                   {onDelete && (
@@ -440,14 +492,6 @@ export function CampaignDetail({
                   {campaign.concurrency} emails simultaneously
                 </p>
               </div>
-              <div>
-                <Label className="text-sm font-medium text-gray-700">
-                  Delay between batches
-                </Label>
-                <p className="text-sm text-gray-900">
-                  {campaign.delaySeconds} seconds
-                </p>
-              </div>
             </CardContent>
           </Card>
 
@@ -461,7 +505,7 @@ export function CampaignDetail({
             </CardHeader>
             <CardContent>
               {stats ? (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="text-center p-4 bg-gray-50 rounded-lg">
                     <div className="text-2xl font-bold text-gray-900">
                       {stats.total}
@@ -476,6 +520,12 @@ export function CampaignDetail({
                     </div>
                     <div className="text-sm text-gray-600">Sent</div>
                   </div>
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {stats.queued}
+                    </div>
+                    <div className="text-sm text-gray-600">Queued</div>
+                  </div>
                   <div className="text-center p-4 bg-yellow-50 rounded-lg">
                     <div className="text-2xl font-bold text-yellow-600">
                       {stats.pending}
@@ -487,6 +537,12 @@ export function CampaignDetail({
                       {stats.failed}
                     </div>
                     <div className="text-sm text-gray-600">Failed</div>
+                  </div>
+                  <div className="text-center p-4 bg-orange-50 rounded-lg">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {stats.bounced}
+                    </div>
+                    <div className="text-sm text-gray-600">Bounced</div>
                   </div>
                 </div>
               ) : (

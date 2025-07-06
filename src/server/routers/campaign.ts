@@ -1,7 +1,5 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, adminProcedure } from "../trpc";
-import { generateEmailTemplate } from "@/lib/email-templates";
-import { sendEmail } from "@/lib/email";
 
 export const campaignRouter = createTRPCRouter({
   // Get all campaigns
@@ -99,7 +97,7 @@ export const campaignRouter = createTRPCRouter({
         subject: z.string().min(1, "Subject is required"),
         body: z.string().min(1, "Email body is required"),
         concurrency: z.number().min(1).max(50).default(5),
-        delaySeconds: z.number().min(0).max(3600).default(10),
+
         clientIds: z.array(z.string()).optional(), // Client IDs to include in campaign
         additionalEmails: z.array(z.string().email()).optional(), // Additional email addresses
       })
@@ -206,7 +204,7 @@ export const campaignRouter = createTRPCRouter({
           .enum(["DRAFT", "ACTIVE", "PAUSED", "COMPLETED", "CANCELLED"])
           .optional(),
         concurrency: z.number().min(1).max(50).optional(),
-        delaySeconds: z.number().min(0).max(3600).optional(),
+
         clientIds: z.array(z.string()).optional(),
         additionalEmails: z.array(z.string().email()).optional(),
       })
@@ -339,7 +337,7 @@ export const campaignRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  // Execute campaign (send emails)
+  // Execute campaign (queue emails for sending)
   execute: adminProcedure
     .input(
       z.object({
@@ -350,6 +348,33 @@ export const campaignRouter = createTRPCRouter({
       const { id } = input;
 
       console.log(`Starting campaign execution for campaign ${id}`);
+
+      // Check if any campaign is currently running
+      const runningExecution = await ctx.db.campaignExecution.findFirst({
+        where: {
+          status: "RUNNING",
+        },
+        include: {
+          campaign: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (runningExecution) {
+        if (runningExecution.campaignId !== id) {
+          throw new Error(
+            `Cannot start campaign execution. Campaign "${runningExecution.campaign.name}" is currently running. Only one campaign can be executed at a time.`
+          );
+        } else {
+          throw new Error(
+            "This campaign is already running. Please wait for it to complete before starting another execution."
+          );
+        }
+      }
 
       // Get campaign with pending recipients
       const campaign = await ctx.db.campaign.findUnique({
@@ -379,7 +404,7 @@ export const campaignRouter = createTRPCRouter({
 
       if (campaign.recipients.length === 0) {
         console.log(`Campaign ${id}: No pending recipients found`);
-        return { sent: 0, failed: 0, message: "No pending recipients" };
+        return { queued: 0, message: "No pending recipients" };
       }
 
       console.log(
@@ -394,214 +419,29 @@ export const campaignRouter = createTRPCRouter({
         },
       });
 
-      let sentCount = 0;
-      let failedCount = 0;
-
       try {
-        // Get company branding for email template
-        const branding = await ctx.db.configuration.findMany({
+        // Mark all pending recipients as QUEUED
+        const updateResult = await ctx.db.campaignRecipient.updateMany({
           where: {
-            key: {
-              in: [
-                "COMPANY_NAME",
-                "COMPANY_LOGO",
-                "COMPANY_WEBSITE",
-                "COMPANY_PHONE",
-                "COMPANY_EMAIL",
-                "COMPANY_ADDRESS",
-              ],
-            },
+            campaignId: id,
+            status: "PENDING",
           },
-        });
-
-        // Check email configuration
-        const emailConfig = await ctx.db.configuration.findMany({
-          where: {
-            key: {
-              in: ["EMAIL_HOST", "EMAIL_USER", "EMAIL_PASS", "SUPPORT_EMAIL"],
-            },
+          data: {
+            status: "QUEUED",
           },
         });
 
         console.log(
-          "Email configuration found:",
-          emailConfig.map((c) => ({
-            key: c.key,
-            hasValue: !!c.value,
-            value: c.key === "EMAIL_PASS" ? "[HIDDEN]" : c.value,
-          }))
+          `Campaign ${id}: Queued ${updateResult.count} recipients for sending`
         );
-
-        // Check if email configuration is properly set
-        const emailHost = emailConfig.find(
-          (c) => c.key === "EMAIL_HOST"
-        )?.value;
-        const emailUser = emailConfig.find(
-          (c) => c.key === "EMAIL_USER"
-        )?.value;
-        const emailPass = emailConfig.find(
-          (c) => c.key === "EMAIL_PASS"
-        )?.value;
-
-        if (!emailHost || emailHost === "smtp.gmail.com") {
-          console.log(
-            "Warning: Email host is default value, may not be configured"
-          );
-        }
-        if (!emailUser || emailUser === "your-email@gmail.com") {
-          console.log(
-            "Warning: Email user is default value, may not be configured"
-          );
-        }
-        if (!emailPass || emailPass === "your-app-password") {
-          console.log(
-            "Warning: Email password is default value, may not be configured"
-          );
-        }
-
-        if (!emailHost) {
-          throw new Error("Email host not configured");
-        }
-        if (!emailUser) {
-          throw new Error("Email user not configured");
-        }
-        if (!emailPass) {
-          throw new Error("Email password not configured");
-        }
-
-        const brandingData = {
-          companyName:
-            branding.find((b) => b.key === "COMPANY_NAME")?.value ||
-            "Support Team",
-          companyLogo: branding.find((b) => b.key === "COMPANY_LOGO")?.value,
-          companyWebsite: branding.find((b) => b.key === "COMPANY_WEBSITE")
-            ?.value,
-          companyPhone: branding.find((b) => b.key === "COMPANY_PHONE")?.value,
-          companyEmail: branding.find((b) => b.key === "COMPANY_EMAIL")?.value,
-          companyAddress: branding.find((b) => b.key === "COMPANY_ADDRESS")
-            ?.value,
-        };
-
-        console.log("Branding data:", brandingData);
-
-        // Send emails to recipients with concurrency and delay
-        const recipientsToProcess = campaign.recipients;
-
-        console.log(
-          `Processing ${recipientsToProcess.length} recipients with concurrency ${campaign.concurrency} and delay ${campaign.delaySeconds}s`
-        );
-
-        // Process recipients in batches based on concurrency
-        for (
-          let i = 0;
-          i < recipientsToProcess.length;
-          i += campaign.concurrency
-        ) {
-          const batch = recipientsToProcess.slice(i, i + campaign.concurrency);
-          console.log(
-            `Processing batch ${Math.floor(i / campaign.concurrency) + 1}: ${
-              batch.length
-            } recipients`
-          );
-
-          // Send emails in parallel for this batch
-          const batchPromises = batch.map(async (recipient) => {
-            try {
-              console.log(
-                `Sending email to ${recipient.email} for campaign ${id}`
-              );
-
-              // Generate email content
-              const html = generateEmailTemplate(
-                campaign.body,
-                brandingData,
-                campaign.subject
-              );
-
-              console.log(`Generated email template for ${recipient.email}`);
-
-              // Send email
-              await sendEmail({
-                to: recipient.email,
-                subject: campaign.subject,
-                html,
-                text: campaign.body, // Plain text version
-              });
-
-              console.log(`Email sent successfully to ${recipient.email}`);
-
-              // Update recipient status
-              await ctx.db.campaignRecipient.update({
-                where: { id: recipient.id },
-                data: {
-                  status: "SENT",
-                  sentAt: new Date(),
-                },
-              });
-
-              console.log(
-                `Updated recipient status to SENT for ${recipient.email}`
-              );
-
-              return { success: true, recipient };
-            } catch (error) {
-              console.error(
-                `Failed to send email to ${recipient.email}:`,
-                error
-              );
-
-              // Update recipient status
-              await ctx.db.campaignRecipient.update({
-                where: { id: recipient.id },
-                data: {
-                  status: "FAILED",
-                  failedAt: new Date(),
-                  errorMessage:
-                    error instanceof Error ? error.message : "Unknown error",
-                },
-              });
-
-              return { success: false, recipient };
-            }
-          });
-
-          // Wait for all emails in this batch to complete
-          const batchResults = await Promise.all(batchPromises);
-
-          // Count successes and failures
-          batchResults.forEach((result) => {
-            if (result.success) {
-              sentCount++;
-            } else {
-              failedCount++;
-            }
-          });
-
-          console.log(
-            `Batch completed: ${sentCount} sent, ${failedCount} failed`
-          );
-
-          // Add delay between batches (except for the last batch)
-          if (
-            i + campaign.concurrency < recipientsToProcess.length &&
-            campaign.delaySeconds > 0
-          ) {
-            console.log(
-              `Waiting ${campaign.delaySeconds} seconds before next batch`
-            );
-            await new Promise((resolve) =>
-              setTimeout(resolve, campaign.delaySeconds * 1000)
-            );
-          }
-        }
 
         // Update execution record
         await ctx.db.campaignExecution.update({
           where: { id: execution.id },
           data: {
             status: "COMPLETED",
-            emailsSent: sentCount,
-            emailsFailed: failedCount,
+            emailsSent: 0,
+            emailsFailed: 0,
           },
         });
 
@@ -609,43 +449,17 @@ export const campaignRouter = createTRPCRouter({
         await ctx.db.campaign.update({
           where: { id },
           data: {
-            sentCount: { increment: sentCount },
-            failedCount: { increment: failedCount },
             lastExecuted: new Date(),
           },
         });
 
-        // Check if all recipients have been processed (no more PENDING recipients)
-        const remainingPendingRecipients = await ctx.db.campaignRecipient.count(
-          {
-            where: {
-              campaignId: id,
-              status: "PENDING",
-            },
-          }
-        );
-
         console.log(
-          `Remaining pending recipients: ${remainingPendingRecipients}`
+          `Campaign ${id}: Successfully queued ${updateResult.count} emails for processing`
         );
-
-        // If no pending recipients remain, mark campaign as COMPLETED
-        if (remainingPendingRecipients === 0) {
-          console.log(
-            "All recipients processed, marking campaign as COMPLETED"
-          );
-          await ctx.db.campaign.update({
-            where: { id },
-            data: {
-              status: "COMPLETED",
-            },
-          });
-        }
-
-        console.log(
-          `Campaign execution completed: ${sentCount} sent, ${failedCount} failed`
-        );
-        return { sent: sentCount, failed: failedCount };
+        return {
+          queued: updateResult.count,
+          message: "Emails queued successfully",
+        };
       } catch (error) {
         console.error("Campaign execution failed:", error);
 
@@ -688,6 +502,7 @@ export const campaignRouter = createTRPCRouter({
         failed: campaign.recipients.filter((r) => r.status === "FAILED").length,
         pending: campaign.recipients.filter((r) => r.status === "PENDING")
           .length,
+        queued: campaign.recipients.filter((r) => r.status === "QUEUED").length,
         bounced: campaign.recipients.filter((r) => r.status === "BOUNCED")
           .length,
         successRate:
@@ -700,5 +515,39 @@ export const campaignRouter = createTRPCRouter({
       };
 
       return stats;
+    }),
+
+  // Check if any campaign is currently running
+  getRunningCampaign: protectedProcedure.query(async ({ ctx }) => {
+    const runningExecution = await ctx.db.campaignExecution.findFirst({
+      where: {
+        status: "RUNNING",
+      },
+      include: {
+        campaign: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    return runningExecution;
+  }),
+
+  // Check if a specific campaign is currently running
+  isCampaignRunning: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const runningExecution = await ctx.db.campaignExecution.findFirst({
+        where: {
+          campaignId: input.id,
+          status: "RUNNING",
+        },
+      });
+
+      return !!runningExecution;
     }),
 });

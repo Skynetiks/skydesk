@@ -34,6 +34,9 @@ export default function CampaignDetailPage() {
     id: campaignId,
   });
 
+  // Check if any campaign is currently running
+  const { data: runningCampaign } = trpc.campaign.getRunningCampaign.useQuery();
+
   const executeCampaignMutation = trpc.campaign.execute.useMutation({
     onSuccess: () => {
       // Refetch campaign data
@@ -54,7 +57,9 @@ export default function CampaignDetailPage() {
     },
   });
 
-  const handleStartAndSend = async (status: string) => {
+  const handleStartAndSend = async (
+    status: "DRAFT" | "ACTIVE" | "PAUSED" | "COMPLETED" | "CANCELLED"
+  ) => {
     try {
       console.log("handleStartAndSend called with status:", status);
 
@@ -196,6 +201,7 @@ export default function CampaignDetailPage() {
             isUpdatingStatus={updateStatusMutation.status === "pending"}
             onDelete={handleDeleteCampaign}
             isDeleting={deleteCampaignMutation.status === "pending"}
+            runningCampaign={runningCampaign}
           />
         </div>
       </main>

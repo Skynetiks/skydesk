@@ -23,7 +23,6 @@ interface CampaignFormData {
   subject: string;
   body: string;
   concurrency: number;
-  delaySeconds: number;
   clientIds: string[];
   additionalEmails: string[];
 }
@@ -54,7 +53,6 @@ export function CampaignForm({
     subject: initialData?.subject || "",
     body: initialData?.body || "",
     concurrency: initialData?.concurrency || 5,
-    delaySeconds: initialData?.delaySeconds || 10,
     clientIds: initialData?.clientIds || [],
     additionalEmails: initialData?.additionalEmails || [],
   });
@@ -172,7 +170,7 @@ export function CampaignForm({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="name">Campaign Name *</Label>
               <Input
@@ -198,25 +196,6 @@ export function CampaignForm({
               />
               <p className="text-xs text-gray-500 mt-1">
                 Emails sent simultaneously
-              </p>
-            </div>
-            <div>
-              <Label htmlFor="delaySeconds">
-                Delay Between Batches (seconds)
-              </Label>
-              <Input
-                id="delaySeconds"
-                type="number"
-                min="0"
-                max="3600"
-                value={formData.delaySeconds}
-                onChange={(e) =>
-                  handleInputChange("delaySeconds", parseInt(e.target.value))
-                }
-                placeholder="10"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Wait time between batches
               </p>
             </div>
           </div>

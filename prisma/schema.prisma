@@ -211,6 +211,7 @@ enum CampaignStatus {
 
 enum RecipientStatus {
     PENDING
+    QUEUED
     SENT
     FAILED
     BOUNCED

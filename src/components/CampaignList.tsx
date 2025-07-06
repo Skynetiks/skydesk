@@ -51,6 +51,14 @@ interface CampaignListProps {
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
   isDeleting?: boolean;
+  runningCampaign?: {
+    id: string;
+    campaign: {
+      id: string;
+      name: string;
+      status: string;
+    };
+  } | null;
 }
 
 const statusColors = {
@@ -66,6 +74,7 @@ export function CampaignList({
   onEdit,
   onDelete,
   isDeleting,
+  runningCampaign,
 }: CampaignListProps) {
   const router = useRouter();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -141,6 +150,17 @@ export function CampaignList({
           <p className="text-sm text-gray-600 mt-1">
             Manage your email campaigns and automation
           </p>
+          {runningCampaign && (
+            <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-md">
+              <p className="text-sm text-orange-800">
+                <span className="font-medium">
+                  Campaign &quot;{runningCampaign.campaign.name}&quot; is
+                  currently running.
+                </span>{" "}
+                Only one campaign can be executed at a time.
+              </p>
+            </div>
+          )}
         </div>
         <Button
           onClick={handleCreateCampaign}
@@ -186,9 +206,17 @@ export function CampaignList({
                     <CardTitle className="text-lg font-semibold text-gray-900 line-clamp-2">
                       {campaign.name}
                     </CardTitle>
-                    <Badge className={statusColors[campaign.status]}>
-                      {campaign.status}
-                    </Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge className={statusColors[campaign.status]}>
+                        {campaign.status}
+                      </Badge>
+                      {runningCampaign &&
+                        runningCampaign.campaign.id === campaign.id && (
+                          <Badge className="bg-orange-100 text-orange-800 text-xs">
+                            Running
+                          </Badge>
+                        )}
+                    </div>
                   </div>
                   <p className="text-sm text-gray-600 line-clamp-1">
                     {campaign.subject}

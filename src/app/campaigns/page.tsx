@@ -22,6 +22,9 @@ export default function CampaignsPage() {
     limit: 50,
   });
 
+  // Check if any campaign is currently running
+  const { data: runningCampaign } = trpc.campaign.getRunningCampaign.useQuery();
+
   const deleteCampaignMutation = trpc.campaign.delete.useMutation({
     onSuccess: () => {
       // Refetch campaigns data
@@ -91,6 +94,7 @@ export default function CampaignsPage() {
               }))}
               onDelete={(id) => deleteCampaignMutation.mutate({ id })}
               isDeleting={deleteCampaignMutation.status === "pending"}
+              runningCampaign={runningCampaign}
             />
           )}
         </div>

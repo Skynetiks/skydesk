@@ -14,15 +14,14 @@ export default function EditCampaignPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const params = useParams();
+  const [activeTab, setActiveTab] = useState<
+    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
+  >("campaigns");
 
   const campaignId = params?.id as string | undefined;
   if (!campaignId) {
     return <div>Invalid campaign ID</div>;
   }
-
-  const [activeTab, setActiveTab] = useState<
-    "dashboard" | "tickets" | "clients" | "campaigns" | "config" | "users"
-  >("campaigns");
 
   const { data: campaign, isLoading: campaignLoading } =
     trpc.campaign.getById.useQuery({
@@ -91,7 +90,6 @@ export default function EditCampaignPage() {
     subject: campaign.subject,
     body: campaign.body,
     concurrency: campaign.concurrency,
-    delaySeconds: campaign.delaySeconds,
     clientIds: campaign.recipients
       .map((r) => r.clientId)
       .filter(Boolean) as string[],

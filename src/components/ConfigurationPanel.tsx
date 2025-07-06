@@ -30,6 +30,7 @@ import {
   SendIcon,
   UploadIcon,
 } from "lucide-react";
+import Image from "next/image";
 
 interface ConfigItem {
   key: string;
@@ -393,7 +394,8 @@ export function ConfigurationPanel() {
     configs: ConfigItem[],
     testFunction: () => void,
     testStatus: "idle" | "testing" | "success" | "error",
-    testMutation: { isPending: boolean }
+    testMutation: { isPending: boolean },
+    showTestButton: boolean = false
   ) => (
     <Card className="bg-white/50 backdrop-blur-sm border-white/20 shadow-lg">
       <CardHeader className="pb-3">
@@ -404,8 +406,8 @@ export function ConfigurationPanel() {
         <CardDescription className="text-sm">{description}</CardDescription>
       </CardHeader>
       <CardContent className="pt-0">
-        {/* Test Connection Button */}
-        {testFunction.toString() !== "() => {}" && (
+        {/* Test Connection Button - Only show for sections that have actual test functions */}
+        {showTestButton && (
           <div className="mb-4">
             <div className="flex items-center gap-3">
               <Button
@@ -616,7 +618,9 @@ export function ConfigurationPanel() {
                             </div>
                           ) : config.type === "file" && currentValue ? (
                             <div className="flex items-center gap-2">
-                              <img
+                              <Image
+                                height={32}
+                                width={32}
                                 src={currentValue}
                                 alt="Company Logo"
                                 className="w-8 h-8 object-contain rounded"
@@ -684,7 +688,8 @@ export function ConfigurationPanel() {
         SMTP_CONFIGS,
         handleTestSmtpConnection,
         smtpTestStatus,
-        testSmtpMutation
+        testSmtpMutation,
+        true // Show test button for SMTP
       )}
 
       {/* IMAP Configuration */}
@@ -694,7 +699,8 @@ export function ConfigurationPanel() {
         IMAP_CONFIGS,
         handleTestImapConnection,
         imapTestStatus,
-        testImapMutation
+        testImapMutation,
+        true // Show test button for IMAP
       )}
 
       {/* Ticket Configuration */}
@@ -704,7 +710,8 @@ export function ConfigurationPanel() {
         TICKET_CONFIGS,
         () => {}, // No test function for ticket settings
         "idle",
-        { isPending: false }
+        { isPending: false },
+        false // Don't show test button for ticket settings
       )}
 
       {/* Company Configuration */}
@@ -714,7 +721,8 @@ export function ConfigurationPanel() {
         COMPANY_CONFIGS,
         () => {}, // No test function for company settings
         "idle",
-        { isPending: false }
+        { isPending: false },
+        false // Don't show test button for company settings
       )}
     </div>
   );
