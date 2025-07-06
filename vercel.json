@@ -5,8 +5,8 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/execute-campaigns",
-      "schedule": "* * * * *"
+      "path": "/api/cron/process-email-queue",
+      "schedule": "*/5 * * * *"
     }
   ]
 } 
