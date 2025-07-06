@@ -36,7 +36,7 @@ export const ticketRouter = createTRPCRouter({
       const whereClause: {
         status?: TicketStatus;
         priority?: Priority;
-        assignedToId?: string;
+        assignedToId?: string | null;
         clientId?: string;
       } = {
         status: status as TicketStatus | undefined,
@@ -47,7 +47,12 @@ export const ticketRouter = createTRPCRouter({
       if (ctx.session.user.role !== "ADMIN") {
         whereClause.assignedToId = ctx.session.user.id;
       } else if (assignedToId) {
-        whereClause.assignedToId = assignedToId;
+        // Handle "unassigned" filter
+        if (assignedToId === "unassigned") {
+          whereClause.assignedToId = null;
+        } else {
+          whereClause.assignedToId = assignedToId;
+        }
       }
 
       const items = await ctx.db.ticket.findMany({
@@ -801,7 +806,59 @@ You can view the full ticket at: ${
         references = `${ticket.emailId} ${lastMessage.messageId}`;
       }
 
-      // Create the message
+      // Generate email content first
+      const { html, text } = await generateTicketReplyEmail(
+        ticket.id,
+        input.content
+      );
+
+      // Send email reply to the user first - if this fails, no message will be created
+      try {
+        console.log(`Attempting to send reply email to ${ticket.fromEmail}...`);
+        console.log(`Email subject: Re: ${ticket.subject} [${ticket.id}]`);
+        console.log(
+          `Attachments to send:`,
+          input.attachments
+            ? {
+                count: input.attachments.length,
+                files: input.attachments.map((a) => ({
+                  filename: a.originalName,
+                  mimeType: a.mimeType,
+                  size: a.size,
+                })),
+              }
+            : "No attachments"
+        );
+
+        await sendEmail({
+          to: ticket.fromEmail,
+          subject: `Re: ${ticket.subject} [${ticket.id}]`,
+          text,
+          html,
+          headers: {
+            "Message-ID": messageId,
+            "In-Reply-To": inReplyTo,
+            References: references,
+          },
+          attachments: input.attachments,
+        });
+
+        console.log(`✅ Reply email sent to ${ticket.fromEmail} successfully`);
+      } catch (emailError) {
+        console.error("❌ Failed to send reply email:", emailError);
+        if (emailError instanceof Error) {
+          console.error("Email error type:", emailError.constructor.name);
+          console.error("Email error message:", emailError.message);
+        }
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            "Cannot send reply due to email configuration issues. Please check email settings.",
+          cause: emailError,
+        });
+      }
+
+      // Only create message if email was sent successfully
       const message = await ctx.db.message.create({
         data: {
           content: input.content,
@@ -831,28 +888,9 @@ You can view the full ticket at: ${
         },
       });
 
-      // Send email reply to the user
-      try {
-        const { html, text } = await generateTicketReplyEmail(
-          ticket.id,
-          input.content
-        );
-
-        await sendEmail({
-          to: ticket.fromEmail,
-          subject: `Re: ${ticket.subject} [${ticket.id}]`,
-          text,
-          html,
-          headers: {
-            "Message-ID": messageId,
-            "In-Reply-To": inReplyTo,
-            References: references,
-          },
-        });
-      } catch (error) {
-        console.error("Failed to send email:", error);
-        // Don't throw error, just log it
-      }
+      console.log(
+        `Message ${message.id} created successfully after email confirmation`
+      );
 
       return message;
     }),

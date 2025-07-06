@@ -78,26 +78,26 @@ export function SideNav({
         : stats?.inProgress || 0, // Non-admin: only in progress
       route: "/tickets",
     },
-    {
-      id: "clients" as const,
-      label: "Clients",
-      icon: Building2Icon,
-      description: "Manage client database",
-      color: "from-emerald-600 to-green-600",
-      hoverColor: "hover:from-emerald-700 hover:to-green-700",
-      route: "/clients",
-    },
-    {
-      id: "campaigns" as const,
-      label: "Campaigns",
-      icon: MailIcon,
-      description: "Email campaigns & automation",
-      color: "from-orange-600 to-red-600",
-      hoverColor: "hover:from-orange-700 hover:to-red-700",
-      route: "/campaigns",
-    },
     ...(isAdmin
       ? [
+          {
+            id: "clients" as const,
+            label: "Clients",
+            icon: Building2Icon,
+            description: "Manage client database",
+            color: "from-emerald-600 to-green-600",
+            hoverColor: "hover:from-emerald-700 hover:to-green-700",
+            route: "/clients",
+          },
+          {
+            id: "campaigns" as const,
+            label: "Campaigns",
+            icon: MailIcon,
+            description: "Email campaigns & automation",
+            color: "from-orange-600 to-red-600",
+            hoverColor: "hover:from-orange-700 hover:to-red-700",
+            route: "/campaigns",
+          },
           {
             id: "config" as const,
             label: "Configuration",

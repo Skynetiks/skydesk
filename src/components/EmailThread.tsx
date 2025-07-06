@@ -188,7 +188,7 @@ export function EmailThread({
                           {message.attachments.map((attachment) => (
                             <a
                               key={attachment.id}
-                              href={attachment.url}
+                              href={`/api/attachments/${attachment.id}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center p-2 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"

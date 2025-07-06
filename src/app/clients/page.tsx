@@ -43,6 +43,10 @@ export default function ClientsPage() {
 
   const isAdmin = currentUser?.role === "ADMIN";
 
+  if (!isAdmin) {
+    return <div>Access denied. Admin privileges required.</div>;
+  }
+
   return (
     <div className="h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex overflow-hidden">
       <SideNav

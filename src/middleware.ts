@@ -18,6 +18,17 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/auth/signin", req.nextUrl));
   }
 
+  // Admin-only routes protection
+  const adminOnlyRoutes = ["/clients", "/campaigns", "/admin"];
+  const isOnAdminRoute = adminOnlyRoutes.some((route) =>
+    req.nextUrl.pathname.startsWith(route)
+  );
+
+  if (isOnAdminRoute && token?.role !== "ADMIN") {
+    // Redirect non-admin users to dashboard
+    return NextResponse.redirect(new URL("/", req.nextUrl));
+  }
+
   return NextResponse.next();
 }
 

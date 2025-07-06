@@ -296,6 +296,32 @@ export function TicketList() {
                 </SelectContent>
               </Select>
 
+              {/* Assigned To Filter - Admin Only */}
+              {session?.user.role === "ADMIN" && (
+                <Select
+                  value={filters.assignedToId || "all"}
+                  onValueChange={(value) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      assignedToId: value === "all" ? undefined : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-40 bg-white/70">
+                    <SelectValue placeholder="Assigned To" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Users</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {users?.map((user) => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
               <Button
                 variant="outline"
                 className="bg-white/70 hover:bg-white/90"

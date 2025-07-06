@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { trpc } from "@/app/_trpc/client";
 import { Button } from "@/components/ui/button";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { EmailThread } from "@/components/EmailThread";
 import { TicketDetailSkeleton } from "@/components/TicketDetailSkeleton";
+import { FileUpload } from "@/components/FileUpload";
 import { formatDistanceToNow } from "date-fns";
 import { useSession } from "next-auth/react";
-import { Send, Paperclip, AlertCircle } from "lucide-react";
+import { Send, AlertCircle, X } from "lucide-react";
 import { TicketStatus, Priority } from "@prisma/client";
+import { toast } from "sonner";
 
 const priorityColors = {
   LOW: "bg-green-100 text-green-800",
@@ -32,6 +34,27 @@ export function TicketDetail() {
   const ticketId = params?.id as string;
   const [replyContent, setReplyContent] = useState("");
   const [showReplyForm, setShowReplyForm] = useState(false);
+  const [attachments, setAttachments] = useState<
+    Array<{
+      id?: string;
+      filename: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      url: string;
+    }>
+  >([]);
+  const replyFormRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to reply form when it becomes visible
+  useEffect(() => {
+    if (showReplyForm && replyFormRef.current) {
+      replyFormRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    }
+  }, [showReplyForm]);
 
   const {
     data: ticket,
@@ -54,22 +77,74 @@ export function TicketDetail() {
   });
 
   const assignMutation = trpc.ticket.assign.useMutation({
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      refetch();
+      toast.success("Ticket assigned successfully!");
+    },
+    onError: (error) => {
+      console.error("Assignment failed:", error);
+      toast.error("Failed to assign ticket. Please try again.", {
+        description: error.message || "An unexpected error occurred.",
+      });
+    },
   });
 
   const updateStatusMutation = trpc.ticket.updateStatus.useMutation({
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      refetch();
+      toast.success("Ticket status updated successfully!");
+    },
+    onError: (error) => {
+      console.error("Status update failed:", error);
+      toast.error("Failed to update ticket status. Please try again.", {
+        description: error.message || "An unexpected error occurred.",
+      });
+    },
   });
 
   const updatePriorityMutation = trpc.ticket.updatePriority.useMutation({
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      refetch();
+      toast.success("Ticket priority updated successfully!");
+    },
+    onError: (error) => {
+      console.error("Priority update failed:", error);
+      toast.error("Failed to update ticket priority. Please try again.", {
+        description: error.message || "An unexpected error occurred.",
+      });
+    },
   });
 
   const replyMutation = trpc.ticket.reply.useMutation({
     onSuccess: () => {
       setReplyContent("");
+      setAttachments([]);
       setShowReplyForm(false);
       refetch();
+      toast.success("Reply sent successfully!");
+    },
+    onError: (error) => {
+      console.error("Reply failed:", error);
+
+      // Check if it's an email configuration error
+      if (
+        error.message?.includes("email configuration") ||
+        error.message?.includes("SMTP")
+      ) {
+        toast.error(
+          "Failed to send reply due to email configuration issues. Please check your email settings.",
+          {
+            description:
+              "Contact your administrator to verify SMTP/AWS SES configuration.",
+            duration: 8000,
+          }
+        );
+      } else {
+        toast.error("Failed to send reply. Please try again.", {
+          description: error.message || "An unexpected error occurred.",
+          duration: 5000,
+        });
+      }
     },
   });
 
@@ -103,6 +178,7 @@ export function TicketDetail() {
     replyMutation.mutate({
       ticketId: ticket.id,
       content: replyContent,
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
   };
 
@@ -298,7 +374,7 @@ export function TicketDetail() {
 
       {/* Reply Form */}
       {showReplyForm && canReply && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div ref={replyFormRef} className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Send Reply</h3>
             <Button
@@ -318,6 +394,63 @@ export function TicketDetail() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Subject: Re: {ticket.subject}
               </label>
+              {/* Reply Attachments */}
+              {attachments.length > 0 && (
+                <div className="p-2">
+                  <h3 className="text-lg font-semibold mb-4">
+                    Reply Attachments
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {attachments.map((attachment, index) => (
+                      <div
+                        key={attachment.id || attachment.filename}
+                        className="flex items-center justify-between p-3 border border-gray-200 rounded-md bg-gray-50"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className="text-lg">
+                            {attachment.mimeType.startsWith("image/")
+                              ? "🖼️"
+                              : attachment.mimeType.includes("pdf")
+                              ? "📄"
+                              : attachment.mimeType.includes("word")
+                              ? "📝"
+                              : attachment.mimeType.includes("excel")
+                              ? "📊"
+                              : attachment.mimeType.includes("powerpoint")
+                              ? "📈"
+                              : attachment.mimeType.includes("zip")
+                              ? "📦"
+                              : "📎"}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium text-gray-900 truncate">
+                              {attachment.originalName}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {formatFileSize(attachment.size)} •{" "}
+                              {attachment.mimeType}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const newAttachments = attachments.filter(
+                              (_, i) => i !== index
+                            );
+                            setAttachments(newAttachments);
+                          }}
+                          className="text-gray-400 hover:text-red-600"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <RichTextEditor
@@ -328,11 +461,13 @@ export function TicketDetail() {
             />
 
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-sm text-gray-500">
-                <Paperclip className="h-4 w-4" />
-                <span>Attachments not supported in this version</span>
-              </div>
-
+              <FileUpload
+                attachments={attachments}
+                onAttachmentsChange={setAttachments}
+                maxFiles={5}
+                maxSize={4 * 1024 * 1024} // 4MB for Vercel
+                compact={true}
+              />
               <div className="flex items-center space-x-3">
                 {!canReply && (
                   <div className="flex items-center space-x-1 text-sm text-amber-600">
@@ -340,19 +475,19 @@ export function TicketDetail() {
                     <span>You need to be assigned to reply</span>
                   </div>
                 )}
-                <Button
-                  onClick={handleReply}
-                  disabled={
-                    !replyContent.trim() || replyMutation.isPending || !canReply
-                  }
-                  className="flex items-center space-x-2"
-                >
-                  <Send className="h-4 w-4" />
-                  <span>
-                    {replyMutation.isPending ? "Sending..." : "Send Reply"}
-                  </span>
-                </Button>
               </div>
+              <Button
+                onClick={handleReply}
+                disabled={
+                  !replyContent.trim() || replyMutation.isPending || !canReply
+                }
+                className="flex items-center space-x-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg"
+              >
+                <Send className="h-4 w-4" />
+                <span>
+                  {replyMutation.isPending ? "Sending..." : "Send Reply"}
+                </span>
+              </Button>
             </div>
           </div>
         </div>
@@ -366,7 +501,7 @@ export function TicketDetail() {
             {ticket.attachments.map((attachment) => (
               <a
                 key={attachment.id}
-                href={attachment.url}
+                href={`/api/attachments/${attachment.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block p-3 border rounded-lg hover:bg-gray-50 transition-colors"

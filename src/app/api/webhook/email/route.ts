@@ -389,6 +389,12 @@ You can view the full ticket at: ${
 
         // Send confirmation email first - if this fails, no ticket will be created
         try {
+          console.log(
+            `Attempting to send confirmation email to ${fromEmail}...`
+          );
+          console.log(`Email subject: Ticket Received: ${subject || ""}`);
+          console.log(`Email content length: ${emailText.length} characters`);
+
           await sendEmail({
             to: fromEmail,
             subject: `Ticket Received: ${subject || ""}`,
@@ -404,9 +410,17 @@ You can view the full ticket at: ${
             },
           });
 
-          console.log(`Confirmation email sent to ${fromEmail} successfully`);
+          console.log(
+            `✅ Confirmation email sent to ${fromEmail} successfully`
+          );
         } catch (emailError) {
-          console.error("Failed to send confirmation email:", emailError);
+          console.error("❌ Failed to send confirmation email:", emailError);
+          if (emailError instanceof Error) {
+            console.error("Email error type:", emailError.constructor.name);
+            console.error("Email error message:", emailError.message);
+            console.error("Email error stack:", emailError.stack);
+          }
+
           return NextResponse.json(
             {
               error: "Email configuration error",
