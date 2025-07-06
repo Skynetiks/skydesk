@@ -1,4 +1,9 @@
 import nodemailer from "nodemailer";
+import {
+  SESClient,
+  SendEmailCommand,
+  VerifyEmailIdentityCommand,
+} from "@aws-sdk/client-ses";
 import { db } from "@/server/db";
 
 interface EmailOptions {
@@ -22,8 +27,8 @@ async function getEmailConfig() {
           "EMAIL_PASS",
           "SENDER_EMAIL",
           "AWS_REGION",
-          "AWS_SES_SMTP_USERNAME",
-          "AWS_SES_SMTP_PASSWORD",
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
           "AWS_SES_SENDER_EMAIL",
         ],
       },
@@ -43,49 +48,41 @@ async function getEmailConfig() {
     hasPassword: !!configMap.EMAIL_PASS,
     senderEmail: configMap.SENDER_EMAIL,
     awsRegion: configMap.AWS_REGION,
-    hasAwsSmtpUsername: !!configMap.AWS_SES_SMTP_USERNAME,
-    hasAwsSmtpPassword: !!configMap.AWS_SES_SMTP_PASSWORD,
+    hasAwsAccessKey: !!configMap.AWS_ACCESS_KEY_ID,
+    hasAwsSecretKey: !!configMap.AWS_SECRET_ACCESS_KEY,
     awsSenderEmail: configMap.AWS_SES_SENDER_EMAIL,
   });
 
   return configMap;
 }
 
-// Create transporter with database config
+// Create AWS SES client
+function createSESClient(config: Record<string, string>) {
+  if (
+    !config.AWS_REGION ||
+    !config.AWS_ACCESS_KEY_ID ||
+    !config.AWS_SECRET_ACCESS_KEY
+  ) {
+    throw new Error("Missing AWS SES configuration");
+  }
+
+  return new SESClient({
+    region: config.AWS_REGION,
+    credentials: {
+      accessKeyId: config.AWS_ACCESS_KEY_ID,
+      secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
+    },
+  });
+}
+
+// Create transporter with database config (for SMTP)
 async function createTransporter() {
   const config = await getEmailConfig();
   const provider = config.EMAIL_PROVIDER || "smtp";
 
   if (provider === "aws") {
-    // AWS SES configuration
-    if (
-      !config.AWS_REGION ||
-      !config.AWS_SES_SMTP_USERNAME ||
-      !config.AWS_SES_SMTP_PASSWORD
-    ) {
-      console.error("Missing AWS SES configuration:", {
-        hasRegion: !!config.AWS_REGION,
-        hasSmtpUsername: !!config.AWS_SES_SMTP_USERNAME,
-        hasSmtpPassword: !!config.AWS_SES_SMTP_PASSWORD,
-      });
-      throw new Error("AWS SES configuration not found in database");
-    }
-
-    console.log("Creating AWS SES transporter with config:", {
-      region: config.AWS_REGION,
-      hasSmtpUsername: !!config.AWS_SES_SMTP_USERNAME,
-      hasSmtpPassword: !!config.AWS_SES_SMTP_PASSWORD,
-    });
-
-    return nodemailer.createTransport({
-      host: `email-smtp.${config.AWS_REGION}.amazonaws.com`,
-      port: 587,
-      secure: false,
-      auth: {
-        user: config.AWS_SES_SMTP_USERNAME,
-        pass: config.AWS_SES_SMTP_PASSWORD,
-      },
-    });
+    // For AWS SES, we'll use the SES client directly, not nodemailer transporter
+    throw new Error("AWS SES uses direct client, not nodemailer transporter");
   } else {
     // SMTP configuration
     if (!config.EMAIL_HOST || !config.EMAIL_USER || !config.EMAIL_PASS) {
@@ -124,56 +121,126 @@ export async function sendEmail(options: EmailOptions) {
     hasText: !!options.text,
   });
 
-  const transporter = await createTransporter();
   const config = await getEmailConfig();
   const provider = config.EMAIL_PROVIDER || "smtp";
 
-  // Determine sender email based on provider
-  let senderEmail: string;
   if (provider === "aws") {
-    senderEmail = config.AWS_SES_SENDER_EMAIL || config.AWS_SES_SMTP_USERNAME;
+    // Use AWS SES client directly
+    const sesClient = createSESClient(config);
+    const senderEmail = config.AWS_SES_SENDER_EMAIL || config.AWS_ACCESS_KEY_ID;
+
+    const command = new SendEmailCommand({
+      Source: senderEmail,
+      Destination: {
+        ToAddresses: [options.to],
+      },
+      Message: {
+        Subject: {
+          Data: options.subject,
+          Charset: "UTF-8",
+        },
+        Body: {
+          Text: {
+            Data: options.text,
+            Charset: "UTF-8",
+          },
+          ...(options.html && {
+            Html: {
+              Data: options.html,
+              Charset: "UTF-8",
+            },
+          }),
+        },
+      },
+    });
+
+    try {
+      console.log("Sending email via AWS SES...");
+      const result = await sesClient.send(command);
+      console.log("Email sent successfully via AWS SES:", result.MessageId);
+      return result;
+    } catch (error) {
+      console.error("Error sending email via AWS SES:", error);
+      throw error;
+    }
   } else {
-    senderEmail = config.SENDER_EMAIL || config.EMAIL_USER;
-  }
+    // Use nodemailer for SMTP
+    const transporter = await createTransporter();
+    const senderEmail = config.SENDER_EMAIL || config.EMAIL_USER;
 
-  const mailOptions = {
-    from: senderEmail,
-    to: options.to,
-    subject: options.subject,
-    text: options.text,
-    html: options.html || options.text,
-    headers: options.headers || {},
-  };
+    const mailOptions = {
+      from: senderEmail,
+      to: options.to,
+      subject: options.subject,
+      text: options.text,
+      html: options.html || options.text,
+      headers: options.headers || {},
+    };
 
-  console.log("Mail options prepared:", {
-    from: mailOptions.from,
-    to: mailOptions.to,
-    subject: mailOptions.subject,
-    hasHtml: !!mailOptions.html,
-    hasText: !!mailOptions.text,
-    provider,
-  });
+    console.log("Mail options prepared:", {
+      from: mailOptions.from,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      hasHtml: !!mailOptions.html,
+      hasText: !!mailOptions.text,
+      provider,
+    });
 
-  try {
-    console.log("Attempting to send email...");
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent successfully:", info.messageId);
-    return info;
-  } catch (error) {
-    console.error("Error sending email:", error);
-    throw error;
+    try {
+      console.log("Attempting to send email via SMTP...");
+      const info = await transporter.sendMail(mailOptions);
+      console.log("Email sent successfully via SMTP:", info.messageId);
+      return info;
+    } catch (error) {
+      console.error("Error sending email via SMTP:", error);
+      throw error;
+    }
   }
 }
 
 // Verify transporter connection
 export async function verifyEmailConnection() {
   try {
-    const transporter = await createTransporter();
-    await transporter.verify();
-    console.log("Email server connection verified");
-    return true;
+    const config = await getEmailConfig();
+    const provider = config.EMAIL_PROVIDER || "smtp";
+
+    console.log("Testing email connection for provider:", provider);
+
+    if (provider === "aws") {
+      // Test AWS SES connection
+      const sesClient = createSESClient(config);
+
+      // Try to verify the sender email identity (this will test the connection)
+      const verifyCommand = new VerifyEmailIdentityCommand({
+        EmailAddress: config.AWS_SES_SENDER_EMAIL || config.AWS_ACCESS_KEY_ID,
+      });
+
+      console.log("Testing AWS SES connection...");
+      await sesClient.send(verifyCommand);
+
+      console.log("AWS SES connection verified successfully");
+      return true;
+    } else {
+      // Test SMTP connection
+      const transporter = await createTransporter();
+
+      console.log("Testing SMTP connection...");
+      await transporter.verify();
+
+      console.log("SMTP connection verified successfully");
+      return true;
+    }
   } catch (error) {
     console.error("Email server connection failed:", error);
+
+    // Provide more specific error information
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+
     return false;
   }
 }
