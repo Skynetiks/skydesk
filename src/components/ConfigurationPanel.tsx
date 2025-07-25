@@ -38,6 +38,7 @@ interface ConfigItem {
   description: string;
   required: boolean;
   type: "text" | "password" | "number" | "boolean" | "file" | "select";
+  options?: { value: string; label: string }[];
 }
 
 const IMAP_CONFIGS: ConfigItem[] = [
@@ -179,6 +180,25 @@ const TICKET_CONFIGS: ConfigItem[] = [
     required: false,
     type: "boolean",
   },
+  {
+    key: "TICKET_ASSIGNMENT_MODE",
+    value: "round_robin",
+    description: "How to assign new tickets: 'default_user' or 'round_robin'",
+    required: false,
+    type: "select",
+    options: [
+      { value: "round_robin", label: "Round Robin" },
+      { value: "default_user", label: "Default User" },
+    ],
+  },
+  {
+    key: "DEFAULT_TICKET_ASSIGNEE",
+    value: "",
+    description:
+      "User ID to assign tickets to when using 'default_user' mode (leave empty for unassigned)",
+    required: false,
+    type: "text",
+  },
 ];
 
 const COMPANY_CONFIGS: ConfigItem[] = [
@@ -285,6 +305,11 @@ export function ConfigurationPanel() {
     refetch,
     isLoading,
   } = trpc.config.getAll.useQuery(undefined, {
+    enabled: !!session,
+  });
+
+  // Get users for assignment dropdown
+  const { data: users } = trpc.user.getAll.useQuery(undefined, {
     enabled: !!session,
   });
 
@@ -590,8 +615,21 @@ export function ConfigurationPanel() {
                                 onChange={(e) => setEditValue(e.target.value)}
                                 className="w-full bg-white/70 border border-gray-300 rounded px-3 py-2 text-sm focus:border-blue-300 focus:ring-blue-200"
                               >
-                                <option value="smtp">SMTP</option>
-                                <option value="aws">AWS SES</option>
+                                {config.options ? (
+                                  config.options.map((option) => (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                    >
+                                      {option.label}
+                                    </option>
+                                  ))
+                                ) : config.key === "EMAIL_PROVIDER" ? (
+                                  <>
+                                    <option value="smtp">SMTP</option>
+                                    <option value="aws">AWS SES</option>
+                                  </>
+                                ) : null}
                               </select>
                             </div>
                           ) : config.type === "file" ? (
@@ -646,6 +684,21 @@ export function ConfigurationPanel() {
                                 </Button>
                               </div>
                             </div>
+                          ) : config.key === "DEFAULT_TICKET_ASSIGNEE" ? (
+                            <div className="space-y-2">
+                              <select
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="w-full bg-white/70 border border-gray-300 rounded px-3 py-2 text-sm focus:border-blue-300 focus:ring-blue-200"
+                              >
+                                <option value="">Unassigned</option>
+                                {users?.map((user) => (
+                                  <option key={user.id} value={user.id}>
+                                    {user.name} ({user.email})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           ) : (
                             <Input
                               type={
@@ -698,7 +751,15 @@ export function ConfigurationPanel() {
                             ) : config.type === "select" ? (
                               <div className="flex items-center gap-2">
                                 <span className="capitalize font-semibold">
-                                  {currentValue === "aws" ? "AWS SES" : "SMTP"}
+                                  {config.options
+                                    ? config.options.find(
+                                        (opt) => opt.value === currentValue
+                                      )?.label || currentValue
+                                    : config.key === "EMAIL_PROVIDER"
+                                    ? currentValue === "aws"
+                                      ? "AWS SES"
+                                      : "SMTP"
+                                    : currentValue}
                                 </span>
                               </div>
                             ) : config.type === "file" && currentValue ? (
@@ -719,6 +780,10 @@ export function ConfigurationPanel() {
                               </div>
                             ) : config.type === "password" && currentValue ? (
                               "••••••••"
+                            ) : config.key === "DEFAULT_TICKET_ASSIGNEE" &&
+                              currentValue ? (
+                              users?.find((u) => u.id === currentValue)?.name ||
+                              "Unknown User"
                             ) : (
                               currentValue || "Not configured"
                             )}

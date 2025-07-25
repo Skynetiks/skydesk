@@ -7,6 +7,7 @@ import {
   generateTicketConfirmationEmail,
   generateTicketRejectionEmail,
 } from "@/lib/email-templates";
+import { assignTicketToUser } from "@/lib/ticket-assignment";
 
 export async function POST(request: NextRequest) {
   try {
@@ -447,6 +448,16 @@ You can view the full ticket at: ${
           references: (references && references.trim()) || undefined,
           attachments: attachments || [],
         });
+
+        // Assign ticket based on configuration
+        const assignedUserId = await assignTicketToUser(ticket.id);
+        if (assignedUserId) {
+          console.log(
+            `Ticket ${ticket.id} automatically assigned to user ${assignedUserId}`
+          );
+        } else {
+          console.log(`Ticket ${ticket.id} created without assignment`);
+        }
 
         // Update ticket with the actual confirmation message ID
         await db.ticket.update({
