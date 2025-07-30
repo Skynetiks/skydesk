@@ -108,14 +108,19 @@ export async function POST(request: NextRequest) {
 
       for (const term of searchTerms) {
         if (term) {
+          // Clean the term (remove angle brackets if present)
+          const cleanTerm = term.replace(/^<|>$/g, "");
+
           // Search for tickets with matching emailId or messageId
           const tickets = await db.ticket.findMany({
             where: {
               OR: [
-                { emailId: term },
-                { messages: { some: { messageId: term } } },
-                { messages: { some: { inReplyTo: term } } },
-                { messages: { some: { references: { contains: term } } } },
+                { emailId: cleanTerm },
+                { messages: { some: { messageId: cleanTerm } } },
+                { messages: { some: { inReplyTo: cleanTerm } } },
+                { messages: { some: { references: { contains: cleanTerm } } } },
+                { lastMessageId: cleanTerm },
+                { messageIds: { has: cleanTerm } },
               ],
             },
             include: {
@@ -127,9 +132,60 @@ export async function POST(request: NextRequest) {
           if (tickets.length > 0) {
             existingTicket = tickets[0];
             console.log(
-              `Found existing ticket ${existingTicket.id} by threading header: ${term}`
+              `Found existing ticket ${existingTicket.id} by threading header: ${cleanTerm}`
             );
             break;
+          }
+        }
+      }
+    }
+
+    // Check for confirmation email Message-IDs in In-Reply-To or References
+    if (
+      !existingTicket &&
+      ((inReplyTo && inReplyTo.trim()) || (references && references.trim()))
+    ) {
+      const searchTerms = [inReplyTo, references]
+        .filter(Boolean)
+        .map((term) => term.trim())
+        .filter((term) => term.length > 0);
+
+      for (const term of searchTerms) {
+        if (term) {
+          const cleanTerm = term.replace(/^<|>$/g, "");
+
+          // Look for confirmation email pattern: ticket-confirmation-*
+          const confirmationPattern = /ticket-confirmation-([a-zA-Z0-9]+)@/i;
+          const match = cleanTerm.match(confirmationPattern);
+
+          if (match && match[1]) {
+            // Extract the timestamp from the confirmation Message-ID
+            const timestamp = match[1];
+
+            // Find tickets created around that time (within 5 minutes)
+            const ticketTime = parseInt(timestamp);
+            const timeRange = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+            const tickets = await db.ticket.findMany({
+              where: {
+                createdAt: {
+                  gte: new Date(ticketTime - timeRange),
+                  lte: new Date(ticketTime + timeRange),
+                },
+              },
+              include: {
+                assignedTo: true,
+              },
+              take: 1,
+            });
+
+            if (tickets.length > 0) {
+              existingTicket = tickets[0];
+              console.log(
+                `Found existing ticket ${existingTicket.id} by confirmation email timestamp: ${timestamp}`
+              );
+              break;
+            }
           }
         }
       }
@@ -143,27 +199,53 @@ export async function POST(request: NextRequest) {
         /ticket\s*#?\s*([a-zA-Z0-9]+)/i,
         /case\s*#?\s*([a-zA-Z0-9]+)/i,
         /\[([a-zA-Z0-9]+)\]/i, // Pattern like [TICKET_ID]
+        /SD-(\d+)/i, // Check for SD- timestamp format
       ];
 
       for (const pattern of ticketIdPatterns) {
         const match = text.match(pattern);
         if (match && match[1]) {
-          const potentialTicketId = match[1];
+          // If it's an SD- timestamp pattern, find by creation time
+          if (pattern.source.includes("SD-")) {
+            const timestamp = parseInt(match[1]);
+            const timeRange = 5 * 60 * 1000; // 5 minutes in milliseconds
 
-          // Try to find ticket by ID
-          const ticket = await db.ticket.findUnique({
-            where: { id: potentialTicketId },
-            include: {
-              assignedTo: true,
-            },
-          });
+            const tickets = await db.ticket.findMany({
+              where: {
+                createdAt: {
+                  gte: new Date(timestamp - timeRange),
+                  lte: new Date(timestamp + timeRange),
+                },
+              },
+              include: {
+                assignedTo: true,
+              },
+              take: 1,
+            });
 
-          if (ticket) {
-            existingTicket = ticket;
-            console.log(
-              `Found existing ticket ${ticket.id} by embedded ticket ID in email body`
-            );
-            break;
+            if (tickets.length > 0) {
+              existingTicket = tickets[0];
+              console.log(
+                `Found existing ticket ${tickets[0].id} by SD timestamp in email body: ${match[1]}`
+              );
+              break;
+            }
+          } else {
+            // Regular ticket ID lookup
+            const ticket = await db.ticket.findUnique({
+              where: { id: match[1] },
+              include: {
+                assignedTo: true,
+              },
+            });
+
+            if (ticket) {
+              existingTicket = ticket;
+              console.log(
+                `Found existing ticket ${ticket.id} by embedded ticket ID in email body`
+              );
+              break;
+            }
           }
         }
       }
@@ -171,8 +253,9 @@ export async function POST(request: NextRequest) {
 
     // Check for ticket ID in subject line (for replies to confirmation emails)
     if (!existingTicket && subject) {
+      // Check for ticket ID in brackets: [TICKET_ID]
       const subjectTicketIdPattern = /\[([a-zA-Z0-9]+)\]/;
-      const match = subject.match(subjectTicketIdPattern);
+      let match = subject.match(subjectTicketIdPattern);
       if (match && match[1]) {
         const potentialTicketId = match[1];
         const ticket = await db.ticket.findUnique({
@@ -186,6 +269,34 @@ export async function POST(request: NextRequest) {
           existingTicket = ticket;
           console.log(
             `Found existing ticket ${ticket.id} by ticket ID in subject line: ${potentialTicketId}`
+          );
+        }
+      }
+
+      // Check for SD- timestamp format in subject: Re: Ticket Received: [SD-1234567890]
+      const sdTicketPattern = /SD-(\d+)/i;
+      match = subject.match(sdTicketPattern);
+      if (match && match[1]) {
+        const timestamp = parseInt(match[1]);
+        const timeRange = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+        const tickets = await db.ticket.findMany({
+          where: {
+            createdAt: {
+              gte: new Date(timestamp - timeRange),
+              lte: new Date(timestamp + timeRange),
+            },
+          },
+          include: {
+            assignedTo: true,
+          },
+          take: 1,
+        });
+
+        if (tickets.length > 0) {
+          existingTicket = tickets[0];
+          console.log(
+            `Found existing ticket ${tickets[0].id} by SD timestamp in subject: ${match[1]}`
           );
         }
       }
@@ -382,7 +493,7 @@ You can view the full ticket at: ${
         }`;
 
         const { html, text: emailText } = await generateTicketConfirmationEmail(
-          `temp-${Date.now()}`, // Temporary ID for email generation
+          `SD-${Date.now()}`, // Temporary ID for email generation
           subject || "",
           text,
           "MEDIUM" // Default priority

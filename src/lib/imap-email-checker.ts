@@ -102,18 +102,6 @@ async function getClientOnlyTicketsConfig(): Promise<boolean> {
   return config?.value === "true";
 }
 
-// Mark email as read
-async function markAllEmailAsRead(client: ImapFlow): Promise<boolean> {
-  try {
-    await client.messageFlagsAdd({ seen: false }, ["\\Seen"]);
-    console.log(`✅ Marked all email as read`);
-    return true;
-  } catch (error) {
-    console.error(`❌ Failed to mark all email as read:`, error);
-    return false;
-  }
-}
-
 // Find existing ticket by various methods
 async function findExistingTicket(
   text: string,
@@ -143,8 +131,9 @@ async function findExistingTicket(
 
   // Check for ticket ID in subject line
   if (subject) {
+    // Check for ticket ID in brackets: [TICKET_ID]
     const subjectTicketIdPattern = /\[([a-zA-Z0-9]+)\]/;
-    const match = subject.match(subjectTicketIdPattern);
+    let match = subject.match(subjectTicketIdPattern);
     if (match && match[1]) {
       const ticket = await db.ticket.findUnique({
         where: { id: match[1] },
@@ -158,6 +147,32 @@ async function findExistingTicket(
         return ticket as TicketWithAssignedTo;
       }
     }
+
+    // Check for SD- timestamp format in subject: Re: Ticket Received: [SD-1234567890]
+    const sdTicketPattern = /SD-(\d+)/i;
+    match = subject.match(sdTicketPattern);
+    if (match && match[1]) {
+      const timestamp = parseInt(match[1]);
+      const timeRange = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+      const tickets = await db.ticket.findMany({
+        where: {
+          createdAt: {
+            gte: new Date(timestamp - timeRange),
+            lte: new Date(timestamp + timeRange),
+          },
+        },
+        include: { assignedTo: true },
+        take: 1,
+      });
+
+      if (tickets.length > 0) {
+        console.log(
+          `Found existing ticket ${tickets[0].id} by SD timestamp in subject: ${match[1]}`
+        );
+        return tickets[0] as TicketWithAssignedTo;
+      }
+    }
   }
 
   // Check threading headers
@@ -166,12 +181,17 @@ async function findExistingTicket(
 
     for (const term of searchTerms) {
       if (term) {
+        // Clean the term (remove angle brackets if present)
+        const cleanTerm = term.replace(/^<|>$/g, "");
+
         const tickets = await db.ticket.findMany({
           where: {
             OR: [
-              { emailId: term },
-              { messages: { some: { messageId: term } } },
-              { messages: { some: { inReplyTo: term } } },
+              { emailId: cleanTerm },
+              { messages: { some: { messageId: cleanTerm } } },
+              { messages: { some: { inReplyTo: cleanTerm } } },
+              { lastMessageId: cleanTerm },
+              { messageIds: { has: cleanTerm } },
             ],
           },
           include: { assignedTo: true },
@@ -180,9 +200,51 @@ async function findExistingTicket(
 
         if (tickets.length > 0) {
           console.log(
-            `Found existing ticket ${tickets[0].id} by threading header: ${term}`
+            `Found existing ticket ${tickets[0].id} by threading header: ${cleanTerm}`
           );
           return tickets[0] as TicketWithAssignedTo;
+        }
+      }
+    }
+  }
+
+  // Check for confirmation email Message-IDs in In-Reply-To or References
+  if (inReplyTo || references) {
+    const searchTerms = [inReplyTo, references].filter(Boolean);
+
+    for (const term of searchTerms) {
+      if (term) {
+        const cleanTerm = term.replace(/^<|>$/g, "");
+
+        // Look for confirmation email pattern: ticket-confirmation-*
+        const confirmationPattern = /ticket-confirmation-([a-zA-Z0-9]+)@/i;
+        const match = cleanTerm.match(confirmationPattern);
+
+        if (match && match[1]) {
+          // Extract the timestamp from the confirmation Message-ID
+          const timestamp = match[1];
+
+          // Find tickets created around that time (within 5 minutes)
+          const ticketTime = parseInt(timestamp);
+          const timeRange = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+          const tickets = await db.ticket.findMany({
+            where: {
+              createdAt: {
+                gte: new Date(ticketTime - timeRange),
+                lte: new Date(ticketTime + timeRange),
+              },
+            },
+            include: { assignedTo: true },
+            take: 1,
+          });
+
+          if (tickets.length > 0) {
+            console.log(
+              `Found existing ticket ${tickets[0].id} by confirmation email timestamp: ${timestamp}`
+            );
+            return tickets[0] as TicketWithAssignedTo;
+          }
         }
       }
     }
@@ -193,19 +255,47 @@ async function findExistingTicket(
     /Ticket ID:\s*([a-zA-Z0-9]+)/i,
     /ticket\s*#?\s*([a-zA-Z0-9]+)/i,
     /case\s*#?\s*([a-zA-Z0-9]+)/i,
+    /SD-(\d+)/i, // Check for SD- timestamp format
   ];
 
   for (const pattern of ticketIdPatterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      const ticket = await db.ticket.findUnique({
-        where: { id: match[1] },
-        include: { assignedTo: true },
-      });
+      // If it's an SD- timestamp pattern, find by creation time
+      if (pattern.source.includes("SD-")) {
+        const timestamp = parseInt(match[1]);
+        const timeRange = 5 * 60 * 1000; // 5 minutes in milliseconds
 
-      if (ticket) {
-        console.log(`Found existing ticket ${ticket.id} by embedded ticket ID`);
-        return ticket as TicketWithAssignedTo;
+        const tickets = await db.ticket.findMany({
+          where: {
+            createdAt: {
+              gte: new Date(timestamp - timeRange),
+              lte: new Date(timestamp + timeRange),
+            },
+          },
+          include: { assignedTo: true },
+          take: 1,
+        });
+
+        if (tickets.length > 0) {
+          console.log(
+            `Found existing ticket ${tickets[0].id} by SD timestamp in email body: ${match[1]}`
+          );
+          return tickets[0] as TicketWithAssignedTo;
+        }
+      } else {
+        // Regular ticket ID lookup
+        const ticket = await db.ticket.findUnique({
+          where: { id: match[1] },
+          include: { assignedTo: true },
+        });
+
+        if (ticket) {
+          console.log(
+            `Found existing ticket ${ticket.id} by embedded ticket ID`
+          );
+          return ticket as TicketWithAssignedTo;
+        }
       }
     }
   }
@@ -381,7 +471,7 @@ async function processEmail(emailData: {
   }`;
 
   const { html, text: emailText } = await generateTicketConfirmationEmail(
-    `temp-${Date.now()}`, // Temporary ID for email generation
+    `SD-${Date.now()}`, // Temporary ID for email generation
     subject,
     text,
     "MEDIUM" // Default priority
@@ -464,9 +554,89 @@ async function processEmail(emailData: {
   );
 }
 
+// Add new function to track last processed timestamp
+async function getLastProcessedTimestamp(): Promise<Date> {
+  const config = await db.configuration.findUnique({
+    where: { key: "LAST_EMAIL_PROCESSED_TIMESTAMP" },
+  });
+
+  if (config?.value) {
+    return new Date(config.value);
+  }
+
+  // Default to 24 hours ago if no timestamp found
+  const defaultTime = new Date();
+  defaultTime.setHours(defaultTime.getHours() - 24);
+  return defaultTime;
+}
+
+async function updateLastProcessedTimestamp(timestamp: Date): Promise<void> {
+  await db.configuration.upsert({
+    where: { key: "LAST_EMAIL_PROCESSED_TIMESTAMP" },
+    update: { value: timestamp.toISOString() },
+    create: {
+      key: "LAST_EMAIL_PROCESSED_TIMESTAMP",
+      value: timestamp.toISOString(),
+      description: "Timestamp of last processed email",
+      updatedBy: await getSystemUserId(),
+    },
+  });
+}
+
+// Simplified function to get all emails since last check
+async function getAllEmailsSinceLastCheck(
+  client: ImapFlow,
+  lastProcessedTime: Date
+): Promise<number[]> {
+  console.log(`Getting all emails since: ${lastProcessedTime.toISOString()}`);
+
+  // Get all emails since last processed time
+  const sinceDate = lastProcessedTime.toISOString().split("T")[0]; // YYYY-MM-DD format
+  const allUids = await client.search(
+    {
+      since: sinceDate,
+    },
+    { uid: true }
+  );
+
+  console.log(`Found ${allUids.length} emails since ${sinceDate}`);
+  return allUids;
+}
+
+// Simplified function to check if email has been processed
+async function isEmailProcessed(messageId: string | null): Promise<boolean> {
+  if (!messageId) return false;
+
+  // Check if this Message-ID exists in any message or ticket
+  const existingMessage = await db.message.findFirst({
+    where: { messageId: messageId },
+  });
+
+  if (existingMessage) {
+    console.log(`Email with Message-ID ${messageId} already processed`);
+    return true;
+  }
+
+  // Also check tickets for this Message-ID
+  const existingTicket = await db.ticket.findFirst({
+    where: {
+      OR: [{ lastMessageId: messageId }, { messageIds: { has: messageId } }],
+    },
+  });
+
+  if (existingTicket) {
+    console.log(
+      `Email with Message-ID ${messageId} already processed in ticket ${existingTicket.id}`
+    );
+    return true;
+  }
+
+  return false;
+}
+
 // Main function to check for new emails
 export async function checkForNewEmails(): Promise<void> {
-  console.log("Starting email check...");
+  console.log("Starting simplified email check...");
 
   let client: ImapFlow | null = null;
   let lock: Awaited<ReturnType<ImapFlow["getMailboxLock"]>> | null = null;
@@ -500,10 +670,15 @@ export async function checkForNewEmails(): Promise<void> {
 
     // Get mailbox lock
     lock = await client.getMailboxLock("INBOX");
-    // await client.mailboxOpen("INBOX", { readOnly: false });
     console.log("Got mailbox lock");
 
     try {
+      // Get last processed timestamp
+      const lastProcessedTime = await getLastProcessedTimestamp();
+      console.log(
+        `Last processed email timestamp: ${lastProcessedTime.toISOString()}`
+      );
+
       // Check mailbox status first
       const mailboxStatus = await client.status("INBOX", {
         messages: true,
@@ -513,57 +688,49 @@ export async function checkForNewEmails(): Promise<void> {
       });
       console.log("Mailbox status:", mailboxStatus);
 
-      // Search for unread emails
-      console.log("Searching for unread emails...");
-      const unreadUids = await client.search({ seen: false }, { uid: true });
-      console.log(`Found ${unreadUids.length} unread emails:`, unreadUids);
+      // Get all emails since last check
+      const allUids = await getAllEmailsSinceLastCheck(
+        client,
+        lastProcessedTime
+      );
+      console.log(`Found ${allUids.length} emails to check`);
 
-      if (unreadUids.length === 0) {
-        console.log("No unread emails found");
+      if (allUids.length === 0) {
+        console.log("No new emails found");
         return;
       }
 
       // Sort UIDs to process them in order (newest first typically)
-      unreadUids.sort((a, b) => b - a);
-      console.log("Processing UIDs in order:", unreadUids);
+      allUids.sort((a, b) => b - a);
+      console.log("Processing UIDs in order:", allUids);
 
-      // Process each unread email - reduced batch size for faster processing
+      // Process each email
       let processedCount = 0;
-      const BATCH_SIZE = 5; // Reduced from 10 to 5 for faster processing
+      const BATCH_SIZE = 5; // Process 5 emails at a time
+      let lastProcessedTimestamp = lastProcessedTime;
 
-      for (const uid of unreadUids.slice(0, BATCH_SIZE)) {
+      for (const uid of allUids.slice(0, BATCH_SIZE)) {
         try {
-          console.log(`Processing unread email UID: ${uid}`);
+          console.log(`Processing email UID: ${uid}`);
 
-          // Fetch the email with optimized options
-          console.log(`Fetching message UID: ${uid}...`);
+          // Fetch the email
           const messages = await client.fetch(
             [uid],
             {
               source: true,
               envelope: true,
-              flags: true,
               uid: true,
+              internalDate: true,
             },
             { uid: true }
           );
 
-          console.log(`Fetch completed for UID: ${uid}, starting iteration...`);
           let messageFound = false;
 
           for await (const message of messages) {
             messageFound = true;
 
-            // Double-check if message is actually unread
-            if (message.flags?.has("\\Seen")) {
-              console.log(
-                `Message UID: ${message.uid} is already read, skipping`
-              );
-              continue;
-            }
-
             // Parse the email
-            console.log(`Parsing message UID: ${message.uid}...`);
             if (!message.source) {
               console.warn(
                 `Message UID: ${message.uid} has no source, skipping`
@@ -572,25 +739,39 @@ export async function checkForNewEmails(): Promise<void> {
             }
 
             const parsed = await simpleParser(message.source);
+            const messageId = parsed.messageId;
 
             console.log("--- Parsed Email ---");
             console.log("From:", parsed.from?.text || "");
             console.log("Subject:", parsed.subject || "");
-            console.log("Message-ID:", parsed.messageId || "");
+            console.log("Message-ID:", messageId || "");
             console.log("In-Reply-To:", parsed.inReplyTo || "");
             console.log("References:", parsed.references || "");
-            console.log("Text length:", parsed.text?.length || 0);
             console.log("Date:", parsed.date);
             console.log("--------------------");
 
+            // Check if this email has already been processed
+            if (await isEmailProcessed(messageId || null)) {
+              console.log(
+                `Skipping already processed email UID: ${message.uid}`
+              );
+              continue;
+            }
+
+            // Update last processed timestamp
+            const emailDate = message.internalDate || parsed.date || new Date();
+            if (emailDate > lastProcessedTimestamp) {
+              lastProcessedTimestamp = emailDate;
+            }
+
             // Process the email
-            console.log(`Processing email UID: ${message.uid}...`);
+            console.log(`Processing new email UID: ${message.uid}...`);
             await processEmail({
               from: parsed.from?.text || "",
               subject: parsed.subject || "",
               text: parsed.text || "",
-              html: parsed.html || "",
-              messageId: parsed.messageId || null,
+              html: parsed.html || undefined,
+              messageId: messageId || null,
               inReplyTo: parsed.inReplyTo || null,
               references: Array.isArray(parsed.references)
                 ? parsed.references.join(" ")
@@ -598,43 +779,39 @@ export async function checkForNewEmails(): Promise<void> {
             });
 
             processedCount++;
-            console.log(`Email ${message.uid} processed successfully`);
+            console.log(`Successfully processed email UID: ${message.uid}`);
           }
 
           if (!messageFound) {
-            console.warn(
-              `No message found for UID ${uid} - it may have been deleted or is invalid`
-            );
+            console.warn(`No message found for UID: ${uid}`);
           }
         } catch (error) {
           console.error(`Error processing email UID ${uid}:`, error);
-          if (error instanceof Error) {
-            console.error("Error details:", error.message);
-            console.error("Error stack:", error.stack);
-          }
-          // Continue processing other emails even if one fails
-          continue;
         }
       }
-      await markAllEmailAsRead(client);
-      console.log(`Email check completed. Processed ${processedCount} emails`);
+
+      // Update the last processed timestamp
+      await updateLastProcessedTimestamp(lastProcessedTimestamp);
+      console.log(
+        `Updated last processed timestamp to: ${lastProcessedTimestamp.toISOString()}`
+      );
+
+      console.log(
+        `Email check completed. Processed ${processedCount} new emails.`
+      );
     } finally {
       if (lock) {
-        lock.release();
-        console.log("Mailbox lock released");
+        await lock.release();
+        console.log("Released mailbox lock");
       }
     }
   } catch (error) {
-    console.error("Error checking emails:", error);
+    console.error("Error in checkForNewEmails:", error);
     throw error;
   } finally {
     if (client) {
-      try {
-        await client.logout();
-        console.log("IMAP client logged out");
-      } catch (logoutError) {
-        console.warn("Error during logout:", logoutError);
-      }
+      await client.logout();
+      console.log("Logged out from IMAP server");
     }
   }
 }

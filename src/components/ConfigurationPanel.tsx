@@ -201,6 +201,30 @@ const TICKET_CONFIGS: ConfigItem[] = [
   },
 ];
 
+const EMAIL_PROCESSING_CONFIGS: ConfigItem[] = [
+  {
+    key: "EMAIL_BATCH_SIZE",
+    value: "5",
+    description: "Number of emails to process per batch (1-20)",
+    required: false,
+    type: "number",
+  },
+  {
+    key: "EMAIL_LOOKBACK_HOURS",
+    value: "24",
+    description: "How far back to look for unprocessed emails (1-168 hours)",
+    required: false,
+    type: "number",
+  },
+  {
+    key: "ENABLE_EMAIL_WEBHOOK",
+    value: "true",
+    description: "Enable email webhook processing in addition to IMAP polling",
+    required: false,
+    type: "boolean",
+  },
+];
+
 const COMPANY_CONFIGS: ConfigItem[] = [
   {
     key: "COMPANY_NAME",
@@ -851,6 +875,17 @@ export function ConfigurationPanel() {
         imapTestStatus,
         testImapMutation,
         true // Show test button for IMAP
+      )}
+
+      {/* Email Processing Configuration */}
+      {renderConfigSection(
+        "Email Processing Settings",
+        "Configure email processing - all emails with unique Message-IDs are processed regardless of read status",
+        EMAIL_PROCESSING_CONFIGS,
+        () => {}, // No test function for email processing settings
+        "idle",
+        { isPending: false },
+        false // Don't show test button for email processing settings
       )}
 
       {/* Ticket Configuration */}

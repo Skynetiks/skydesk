@@ -47,3 +47,57 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+// Add POST endpoint for manual triggering
+export async function POST(request: NextRequest) {
+  try {
+    // Verify the request is from a legitimate source
+    const authHeader = request.headers.get("authorization");
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { force = false, strategy = "both" } = body;
+
+    console.log(
+      `Manual email check triggered: force=${force}, strategy=${strategy}`
+    );
+
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(
+        () => reject(new Error("Email check timeout after 90 seconds")),
+        90000
+      );
+    });
+
+    // Check for new emails with timeout
+    await Promise.race([checkForNewEmails(), timeoutPromise]);
+
+    return NextResponse.json({
+      success: true,
+      message: "Manual email check completed successfully",
+      timestamp: new Date().toISOString(),
+      force,
+      strategy,
+    });
+  } catch (error) {
+    console.error("Manual email check error:", error);
+
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+    }
+
+    return NextResponse.json(
+      {
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    );
+  }
+}

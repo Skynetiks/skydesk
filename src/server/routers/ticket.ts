@@ -431,7 +431,7 @@ export const ticketRouter = createTRPCRouter({
       }`;
 
       const { html, text } = await generateTicketConfirmationEmail(
-        `temp-${Date.now()}`, // Temporary ID for email generation
+        `SD-${Date.now()}`, // Temporary ID for email generation
         input.subject,
         input.content,
         "MEDIUM" // Default priority
